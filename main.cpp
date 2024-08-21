@@ -19,28 +19,6 @@
 #include <optional>
 #include <set>
 
-VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger)
-{
-    auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (func != nullptr)
-    {
-        return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-    }
-    else
-    {
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-    }
-}
-
-void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator)
-{
-    auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-    if (func != nullptr)
-    {
-        func(instance, debugMessenger, pAllocator);
-    }
-}
-
 struct QueueFamilyIndices
 {
     std::optional<uint32_t> graphicsFamily;
@@ -162,16 +140,19 @@ public:
     void run()
     {
         // init window
-        glfwInit();
+        {
+            glfwInit();
 
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-        glfwSetWindowUserPointer(window, this);
-        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+            window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+            glfwSetWindowUserPointer(window, this);
+            glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+        }
 
         // init vulkan
         {
+            VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
             // create instance
             {
                 if (enableValidationLayers)
@@ -226,13 +207,16 @@ public:
                 createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
                 createInfo.ppEnabledExtensionNames = extensions.data();
 
-                VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+                debugCreateInfo = {};
+                debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+                debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+                debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+                debugCreateInfo.pfnUserCallback = debugCallback;
                 if (enableValidationLayers)
                 {
                     createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
                     createInfo.ppEnabledLayerNames = validationLayers.data();
 
-                    populateDebugMessengerCreateInfo(debugCreateInfo);
                     createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
                 }
                 else
@@ -253,10 +237,15 @@ public:
                 if (!enableValidationLayers)
                     return;
 
-                VkDebugUtilsMessengerCreateInfoEXT createInfo;
-                populateDebugMessengerCreateInfo(createInfo);
-
-                if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS)
+                auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+                if (func != nullptr)
+                {
+                    if (func(instance, &debugCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to set up debug messenger!");
+                    }
+                }
+                else
                 {
                     throw std::runtime_error("failed to set up debug messenger!");
                 }
@@ -302,17 +291,31 @@ public:
 
                     bool extensionsSupported = requiredExtensions.empty();
 
-                    bool swapChainAdequate = false;
-                    if (extensionsSupported)
+                    // swap chain support
+                    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapChainSupport.capabilities);
+
+                    uint32_t formatCount;
+                    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+                    if (formatCount != 0)
                     {
-                        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
-                        swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+                        swapChainSupport.formats.resize(formatCount);
+                        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, swapChainSupport.formats.data());
+                    }
+
+                    uint32_t presentModeCount;
+                    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+                    if (presentModeCount != 0)
+                    {
+                        swapChainSupport.presentModes.resize(presentModeCount);
+                        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, swapChainSupport.presentModes.data());
                     }
 
                     VkPhysicalDeviceFeatures supportedFeatures;
                     vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-                    if (indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy)
+                    if (indices.isComplete() && extensionsSupported && !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty() && supportedFeatures.samplerAnisotropy)
                     {
                         physicalDevice = device;
                         break;
@@ -376,7 +379,6 @@ public:
                 vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 
                 createSwapChain();
-                createImageViews();
             }
             // create render pass
             {
@@ -598,7 +600,6 @@ public:
                     throw std::runtime_error("failed to create graphics command pool!");
                 }
 
-                createDepthResources();
                 createFramebuffers();
             }
             // create vertex buffer
@@ -946,7 +947,11 @@ public:
 
             if (enableValidationLayers)
             {
-                DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+                auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+                if (func != nullptr)
+                {
+                    func(instance, debugMessenger, nullptr);
+                }
             }
 
             vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -977,6 +982,7 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
+    SwapChainSupportDetails swapChainSupport;
 
     VkRenderPass renderPass;
     VkDescriptorSetLayout descriptorSetLayout;
@@ -1023,42 +1029,6 @@ private:
         return VK_FALSE;
     }
 
-    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo)
-    {
-        createInfo = {};
-        createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        createInfo.pfnUserCallback = debugCallback;
-    }
-
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
-    {
-        SwapChainSupportDetails details;
-
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
-
-        uint32_t formatCount;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-
-        if (formatCount != 0)
-        {
-            details.formats.resize(formatCount);
-            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
-        }
-
-        uint32_t presentModeCount;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-
-        if (presentModeCount != 0)
-        {
-            details.presentModes.resize(presentModeCount);
-            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
-        }
-
-        return details;
-    }
-
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
     {
         QueueFamilyIndices indices;
@@ -1096,10 +1066,30 @@ private:
         return indices;
     }
 
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+    {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = aspectFlags;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        VkImageView imageView;
+        if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
+        {
+            throw std::runtime_error("failed to create image view!");
+        }
+
+        return imageView;
+    }
+
     void createSwapChain()
     {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
-
         VkSurfaceFormatKHR surfaceFormat = swapChainSupport.formats[0];
         for (const auto &availableFormat : swapChainSupport.formats)
         {
@@ -1185,32 +1175,7 @@ private:
 
         swapChainImageFormat = surfaceFormat.format;
         swapChainExtent = extent;
-    }
 
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
-    {
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = format;
-        viewInfo.subresourceRange.aspectMask = aspectFlags;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-
-        VkImageView imageView;
-        if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create image view!");
-        }
-
-        return imageView;
-    }
-
-    void createImageViews()
-    {
         swapChainImageViews.resize(swapChainImages.size());
 
         for (uint32_t i = 0; i < swapChainImages.size(); i++)
@@ -1292,7 +1257,7 @@ private:
         throw std::runtime_error("failed to find suitable memory type!");
     }
 
-    void createDepthResources()
+    void createFramebuffers()
     {
         VkFormat depthFormat = findDepthFormat();
 
@@ -1331,10 +1296,7 @@ private:
 
         vkBindImageMemory(device, depthImage, depthImageMemory, 0);
         depthImageView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-    }
 
-    void createFramebuffers()
-    {
         swapChainFramebuffers.resize(swapChainImageViews.size());
 
         for (size_t i = 0; i < swapChainImageViews.size(); i++)
@@ -1456,8 +1418,6 @@ private:
         cleanupSwapChain();
 
         createSwapChain();
-        createImageViews();
-        createDepthResources();
         createFramebuffers();
     }
 };
