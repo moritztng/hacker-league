@@ -61,6 +61,7 @@
         "fstream": "cpp",
         "optional": "cpp",
         "ratio": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "dense": "cpp"
     }
 }

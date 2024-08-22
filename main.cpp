@@ -18,6 +18,75 @@
 #include <array>
 #include <optional>
 #include <set>
+#include <thread>
+#include "Eigen/Dense"
+
+struct Car
+{
+    Eigen::Vector3f position;
+    Eigen::Vector3f velocity;
+    Eigen::Vector3f orientation;
+};
+
+struct Keys
+{
+    bool up;
+    bool down;
+    bool left;
+    bool right;
+};
+
+struct State
+{
+    Car car;
+    Keys keys;
+};
+
+void physics(State &state)
+{
+    using namespace std::chrono;
+    const microseconds frameDuration(1000000 / 60);
+    const float deltaTime = frameDuration.count() / 1000000.0f;
+    const float acceleration = 2.0f;
+    const float turnRadius = 1.0f;
+    const float friction = 1.0f;
+    const auto deltaVelocity = acceleration * deltaTime;
+    const auto deltaFriction = acceleration * deltaTime;
+    while (true)
+    {
+        auto start = high_resolution_clock::now();
+        auto orientationVector = Eigen::Vector3f(std::cos(state.car.orientation.z()), std::sin(state.car.orientation.z()), 0);
+        if (state.keys.up)
+        {
+            state.car.velocity += orientationVector * deltaVelocity;
+        }
+        else if (state.keys.down)
+        {
+            state.car.velocity -= orientationVector * deltaVelocity;
+        }
+        else
+        {
+            state.car.velocity -= state.car.velocity.normalized() * deltaFriction;
+            if (state.car.velocity.norm() <= deltaVelocity)
+            {
+                state.car.velocity *= 0;
+            }
+        }
+        if (state.keys.left || state.keys.right)
+        {
+            auto velocityNorm = state.car.velocity.norm();
+            auto backwards = state.car.velocity.dot(orientationVector) < 0 ? -1 : 1;
+            state.car.orientation.z() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
+            state.car.velocity = backwards * orientationVector * velocityNorm;
+        }
+        state.car.position += state.car.velocity * deltaTime;
+        auto elapsed = duration_cast<microseconds>(high_resolution_clock::now() - start);
+        if (elapsed < frameDuration)
+        {
+            std::this_thread::sleep_for(frameDuration - elapsed);
+        }
+    }
+}
 
 struct QueueFamilyIndices
 {
@@ -134,9 +203,11 @@ const std::vector<uint16_t> indices = {
     0, 1, 2, 2, 3, 0,
     4, 5, 6, 6, 7, 4};
 
-class Universe
+class InputGraphics
 {
 public:
+    InputGraphics(State &state)
+        : state(state) {}
     void run()
     {
         // init window
@@ -145,7 +216,7 @@ public:
 
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-            window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+            window = glfwCreateWindow(WIDTH, HEIGHT, "Universe", nullptr, nullptr);
             glfwSetWindowUserPointer(window, this);
             glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
         }
@@ -759,6 +830,42 @@ public:
             while (!glfwWindowShouldClose(window))
             {
                 glfwPollEvents();
+                int keyState = glfwGetKey(window, GLFW_KEY_UP);
+                if (keyState == GLFW_PRESS)
+                {
+                    state.keys.up = true;
+                }
+                else if (keyState == GLFW_RELEASE)
+                {
+                    state.keys.up = false;
+                }
+                keyState = glfwGetKey(window, GLFW_KEY_DOWN);
+                if (keyState == GLFW_PRESS)
+                {
+                    state.keys.down = true;
+                }
+                else if (keyState == GLFW_RELEASE)
+                {
+                    state.keys.down = false;
+                }
+                keyState = glfwGetKey(window, GLFW_KEY_LEFT);
+                if (keyState == GLFW_PRESS)
+                {
+                    state.keys.left = true;
+                }
+                else if (keyState == GLFW_RELEASE)
+                {
+                    state.keys.left = false;
+                }
+                keyState = glfwGetKey(window, GLFW_KEY_RIGHT);
+                if (keyState == GLFW_PRESS)
+                {
+                    state.keys.right = true;
+                }
+                else if (keyState == GLFW_RELEASE)
+                {
+                    state.keys.right = false;
+                }
                 // draw frame
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -778,13 +885,8 @@ public:
 
                     // update uniform buffer
                     {
-                        static auto startTime = std::chrono::high_resolution_clock::now();
-
-                        auto currentTime = std::chrono::high_resolution_clock::now();
-                        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
                         UniformBufferObject ubo{};
-                        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+                        ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(state.car.position.x(), state.car.position.y(), state.car.position.z())) * glm::rotate(glm::mat4(1.0f), state.car.orientation.z(), glm::vec3(0.0f, 0.0f, 1.0f));
                         ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
                         ubo.proj[1][1] *= -1;
@@ -1016,10 +1118,12 @@ private:
 
     bool framebufferResized = false;
 
+    State &state;
+
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
     {
-        auto universe = reinterpret_cast<Universe *>(glfwGetWindowUserPointer(window));
-        universe->framebufferResized = true;
+        auto inputGraphics = reinterpret_cast<InputGraphics *>(glfwGetWindowUserPointer(window));
+        inputGraphics->framebufferResized = true;
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
@@ -1424,11 +1528,23 @@ private:
 
 int main()
 {
-    Universe universe;
+    State state = {
+        {Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+         Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+         Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
+        {false,
+         false,
+         false,
+         false}};
+    InputGraphics inputGraphics(state);
 
     try
     {
-        universe.run();
+        std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
+        std::thread physicsThread(&physics, std::ref(state));
+
+        inputGraphicsThread.join();
+        physicsThread.join();
     }
     catch (const std::exception &e)
     {
