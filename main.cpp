@@ -55,7 +55,7 @@ void physics(State &state)
     while (true)
     {
         auto start = high_resolution_clock::now();
-        auto orientationVector = Eigen::Vector3f(std::cos(state.car.orientation.z()), std::sin(state.car.orientation.z()), 0);
+        auto orientationVector = Eigen::Vector3f(std::sin(state.car.orientation.y()), 0.0f, std::cos(state.car.orientation.y()));
         if (state.keys.up)
         {
             state.car.velocity += orientationVector * deltaVelocity;
@@ -76,7 +76,7 @@ void physics(State &state)
         {
             auto velocityNorm = state.car.velocity.norm();
             auto backwards = state.car.velocity.dot(orientationVector) < 0 ? -1 : 1;
-            state.car.orientation.z() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
+            state.car.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
             state.car.velocity = backwards * orientationVector * velocityNorm;
         }
         state.car.position += state.car.velocity * deltaTime;
@@ -886,8 +886,10 @@ public:
                     // update uniform buffer
                     {
                         UniformBufferObject ubo{};
-                        ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(state.car.position.x(), state.car.position.y(), state.car.position.z())) * glm::rotate(glm::mat4(1.0f), state.car.orientation.z(), glm::vec3(0.0f, 0.0f, 1.0f));
-                        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+                        auto carPosition = glm::vec3(state.car.position.x(), state.car.position.y(), state.car.position.z());
+                        auto rotation = glm::rotate(glm::mat4(1.0f), state.car.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        ubo.model = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
+                        ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 2.0f, 2.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
                         ubo.proj[1][1] *= -1;
 
