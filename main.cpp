@@ -21,7 +21,7 @@
 #include <thread>
 #include "Eigen/Dense"
 
-struct Car
+struct ObjectState
 {
     Eigen::Vector3f position;
     Eigen::Vector3f velocity;
@@ -36,9 +36,22 @@ struct Keys
     bool right;
 };
 
+struct Ball
+{
+    ObjectState state;
+    float radius;
+};
+
+struct Car
+{
+    ObjectState state;
+    Eigen::Vector3f shape;
+};
+
 struct State
 {
     Car car;
+    Ball ball;
     Keys keys;
 };
 
@@ -55,31 +68,44 @@ void physics(State &state)
     while (true)
     {
         auto start = high_resolution_clock::now();
-        auto orientationVector = Eigen::Vector3f(std::sin(state.car.orientation.y()), 0.0f, std::cos(state.car.orientation.y()));
+        auto orientationVector = Eigen::Vector3f(std::sin(state.car.state.orientation.y()), 0.0f, std::cos(state.car.state.orientation.y()));
         if (state.keys.up)
         {
-            state.car.velocity += orientationVector * deltaVelocity;
+            state.car.state.velocity += orientationVector * deltaVelocity;
         }
         else if (state.keys.down)
         {
-            state.car.velocity -= orientationVector * deltaVelocity;
+            state.car.state.velocity -= orientationVector * deltaVelocity;
         }
         else
         {
-            state.car.velocity -= state.car.velocity.normalized() * deltaFriction;
-            if (state.car.velocity.norm() <= deltaVelocity)
+            state.car.state.velocity -= state.car.state.velocity.normalized() * deltaFriction;
+            if (state.car.state.velocity.norm() <= deltaVelocity)
             {
-                state.car.velocity *= 0;
+                state.car.state.velocity *= 0;
             }
         }
         if (state.keys.left || state.keys.right)
         {
-            auto velocityNorm = state.car.velocity.norm();
-            auto backwards = state.car.velocity.dot(orientationVector) < 0 ? -1 : 1;
-            state.car.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
-            state.car.velocity = backwards * orientationVector * velocityNorm;
+            auto velocityNorm = state.car.state.velocity.norm();
+            auto backwards = state.car.state.velocity.dot(orientationVector) < 0 ? -1 : 1;
+            state.car.state.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
+            state.car.state.velocity = backwards * orientationVector * velocityNorm;
         }
-        state.car.position += state.car.velocity * deltaTime;
+        state.ball.state.velocity.y() -= 2 * deltaTime;
+        if (state.ball.state.position.y() < state.ball.radius) {
+            state.ball.state.position.y() = state.ball.radius;
+            state.ball.state.velocity.y() *=  -0.6;
+        }
+        if (state.ball.state.position.y() == state.ball.radius) {
+            auto velocity = state.ball.state.velocity;
+            auto velocity2 = Eigen::Vector2f(velocity[0], velocity[2]);
+            auto scale = std::max(1 - deltaFriction / velocity2.norm(), 0.0f);
+            state.ball.state.velocity.x() *= scale;
+            state.ball.state.velocity.z() *= scale;
+        }
+        state.car.state.position += state.car.state.velocity * deltaTime;
+        state.ball.state.position += state.ball.state.velocity * deltaTime;
         auto elapsed = duration_cast<microseconds>(high_resolution_clock::now() - start);
         if (elapsed < frameDuration)
         {
@@ -110,7 +136,6 @@ struct Vertex
 {
     glm::vec3 pos;
     glm::vec3 color;
-    glm::vec2 texCoord;
 
     static VkVertexInputBindingDescription getBindingDescription()
     {
@@ -142,7 +167,7 @@ struct Vertex
 
 struct UniformBufferObject
 {
-    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 model[2];
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
 };
@@ -163,45 +188,6 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-const std::vector<Vertex> vertices = {
-    {
-        {-0.5f, -0.5f, 0.0f},
-        {1.0f, 0.0f, 0.0f},
-    },
-    {
-        {0.5f, -0.5f, 0.0f},
-        {0.0f, 1.0f, 0.0f},
-    },
-    {
-        {0.5f, 0.5f, 0.0f},
-        {0.0f, 0.0f, 1.0f},
-    },
-    {
-        {-0.5f, 0.5f, 0.0f},
-        {1.0f, 1.0f, 1.0f},
-    },
-
-    {
-        {-0.5f, -0.5f, -0.5f},
-        {1.0f, 0.0f, 0.0f},
-    },
-    {
-        {0.5f, -0.5f, -0.5f},
-        {0.0f, 1.0f, 0.0f},
-    },
-    {
-        {0.5f, 0.5f, -0.5f},
-        {0.0f, 0.0f, 1.0f},
-    },
-    {
-        {-0.5f, 0.5f, -0.5f},
-        {1.0f, 1.0f, 1.0f},
-    }};
-
-const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0,
-    4, 5, 6, 6, 7, 4};
 
 class InputGraphics
 {
@@ -581,7 +567,7 @@ public:
                 rasterizer.rasterizerDiscardEnable = VK_FALSE;
                 rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
                 rasterizer.lineWidth = 1.0f;
-                rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+                // rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
                 rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
                 rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -621,10 +607,17 @@ public:
                 dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
                 dynamicState.pDynamicStates = dynamicStates.data();
 
+                VkPushConstantRange pushConstantRange = {};
+                pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // Stage where the push constants are used
+                pushConstantRange.offset = 0;                              // Offset into the push constant data
+                pushConstantRange.size = sizeof(uint);                     // Size of the push constant data
+
                 VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
                 pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 pipelineLayoutInfo.setLayoutCount = 1;
                 pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+                pipelineLayoutInfo.pushConstantRangeCount = 1;               // Number of push constant ranges
+                pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange; // Push constant ranges
 
                 if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
                 {
@@ -673,8 +666,58 @@ public:
 
                 createFramebuffers();
             }
-            // create vertex buffer
             {
+                const float width = 1.0f;
+                const float height = 0.5f;
+                const float length = 1.5f;
+                float halfWidth = width / 2, halfHeight = height / 2, halfLength = length / 2;
+                std::vector<Vertex> vertices = {
+                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},
+                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 1.0f, 1.0f}},
+                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
+                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 1.0f, 1.0f}},
+                };
+                std::vector<uint16_t> indices = {
+                    0, 1, 2, 2, 3, 0, // Front face
+                    4, 5, 6, 6, 7, 4, // Back face
+                    0, 1, 5, 5, 4, 0, // Bottom face
+                    2, 3, 7, 7, 6, 2, // Top face
+                    0, 3, 7, 7, 4, 0, // Left face
+                    1, 2, 6, 6, 5, 1, // Right face
+                };
+                indicesOffsets.push_back(indices.size());
+
+                const float PI = glm::pi<float>();
+                const int RES = 64;
+                const float R = 1.0f;
+                int verticesOffset = vertices.size();
+                for (int lat = 0; lat <= RES; ++lat)
+                    for (int lon = 0; lon <= RES; ++lon)
+                    {
+                        float theta = lat * PI / RES - PI / 2.0f;
+                        float phi = lon * 2.0f * PI / RES;
+
+                        vertices.push_back({glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * R,
+                                            glm::vec3(1.0f, 0.0f, 0.0f)});
+
+                        if (lat < RES && lon < RES)
+                        {
+                            uint16_t current = static_cast<uint16_t>(verticesOffset + lat * (RES + 1) + lon);
+                            uint16_t next = static_cast<uint16_t>(current + RES + 1);
+                            indices.insert(indices.end(), {current,
+                                                           next,
+                                                           static_cast<uint16_t>(current + 1),
+                                                           static_cast<uint16_t>(current + 1),
+                                                           next,
+                                                           static_cast<uint16_t>(next + 1)});
+                        }
+                    }
+                indicesOffsets.push_back(indices.size());
+
                 VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
                 VkBuffer stagingBuffer;
@@ -692,17 +735,10 @@ public:
 
                 vkDestroyBuffer(device, stagingBuffer, nullptr);
                 vkFreeMemory(device, stagingBufferMemory, nullptr);
-            }
 
-            // create index buffer
-            {
-                VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-                VkBuffer stagingBuffer;
-                VkDeviceMemory stagingBufferMemory;
+                bufferSize = sizeof(indices[0]) * indices.size();
                 createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-                void *data;
                 vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
                 memcpy(data, indices.data(), (size_t)bufferSize);
                 vkUnmapMemory(device, stagingBufferMemory);
@@ -886,10 +922,11 @@ public:
                     // update uniform buffer
                     {
                         UniformBufferObject ubo{};
-                        auto carPosition = glm::vec3(state.car.position.x(), state.car.position.y(), state.car.position.z());
-                        auto rotation = glm::rotate(glm::mat4(1.0f), state.car.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.model = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
-                        ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 2.0f, 2.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
+                        auto carPosition = glm::vec3(state.car.state.position.x(), state.car.state.position.y(), state.car.state.position.z());
+                        auto rotation = glm::rotate(glm::mat4(1.0f), state.car.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
+                        ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
                         ubo.proj[1][1] *= -1;
 
@@ -948,11 +985,23 @@ public:
                         VkDeviceSize offsets[] = {0};
                         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-
                         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-                        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+                        uint index = 0;
+
+                        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[0], 1, 0, 0, 0);
+
+                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[0] * 2, VK_INDEX_TYPE_UINT16);
+
+                        index = 1;
+
+                        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, 0, 0, 0);
 
                         vkCmdEndRenderPass(commandBuffer);
 
@@ -1117,6 +1166,7 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
+    std::vector<uint32_t> indicesOffsets;
 
     bool framebufferResized = false;
 
@@ -1531,13 +1581,12 @@ private:
 int main()
 {
     State state = {
-        {Eigen::Vector3f(0.0f, 0.0f, 0.0f),
-         Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+        {{Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+          Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+          Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
-        {false,
-         false,
-         false,
-         false}};
+        {{Eigen::Vector3f(0.0f, 4.0f, 0.0f), Eigen::Vector3f(0.1f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+        {false, false, false, false}};
     InputGraphics inputGraphics(state);
 
     try
