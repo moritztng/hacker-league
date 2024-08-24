@@ -92,18 +92,69 @@ void physics(State &state)
             state.car.state.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
             state.car.state.velocity = backwards * orientationVector * velocityNorm;
         }
-        state.ball.state.velocity.y() -= 2 * deltaTime;
-        if (state.ball.state.position.y() < state.ball.radius) {
-            state.ball.state.position.y() = state.ball.radius;
-            state.ball.state.velocity.y() *=  -0.6;
+        if (state.ball.state.position.y() > state.ball.radius)
+        {
+            state.ball.state.velocity.y() -= 2 * deltaTime;
         }
-        if (state.ball.state.position.y() == state.ball.radius) {
+        else if (state.ball.state.position.y() < state.ball.radius)
+        {
+            state.ball.state.position.y() = state.ball.radius;
+            state.ball.state.velocity.y() *= -0.6;
+        }
+        if (state.ball.state.position.y() == state.ball.radius)
+        {
             auto velocity = state.ball.state.velocity;
             auto velocity2 = Eigen::Vector2f(velocity[0], velocity[2]);
             auto scale = std::max(1 - deltaFriction / velocity2.norm(), 0.0f);
             state.ball.state.velocity.x() *= scale;
             state.ball.state.velocity.z() *= scale;
         }
+
+        Eigen::Matrix3f rotationMatrix;
+        rotationMatrix = Eigen::AngleAxisf(state.car.state.orientation.y(), Eigen::Vector3f::UnitY());
+        Eigen::Vector3f localBallPosition = rotationMatrix.transpose() * (state.ball.state.position - state.car.state.position);
+        Eigen::Vector3f halfExtents = state.car.shape / 2.0f;
+        auto distance = (localBallPosition - localBallPosition.cwiseMax(-halfExtents).cwiseMin(halfExtents)).norm(); 
+        if (distance < state.ball.radius)
+        {
+            std::cout << "collision" << std::endl; 
+            const float restitution = 0.0f; 
+            const float ballMass = 1.0f;
+            const float carMass = 10000000.0f;
+            // Normalize the collision normal
+            Eigen::Vector3f collisionNormal = state.ball.state.position - state.car.state.position;
+            collisionNormal.normalize();
+
+            // Relative velocity
+            Eigen::Vector3f relativeVelocity = state.ball.state.velocity - state.car.state.velocity;
+
+            // Velocity along the normal
+            float velocityAlongNormal = relativeVelocity.dot(collisionNormal);
+
+            // Do not resolve if velocities are separating
+            if (velocityAlongNormal > 0) {
+                std::cout << "nothing" << velocityAlongNormal << std::endl;
+                continue;
+            }
+
+            // Calculate the impulse scalar
+            float impulseScalar = (-(1.0f + restitution) * velocityAlongNormal) / (1.0f / ballMass + 1.0f / carMass);
+
+            // Apply the impulse to each object
+            Eigen::Vector3f impulse = impulseScalar * collisionNormal;
+            state.ball.state.velocity += impulse / ballMass;
+            state.car.state.velocity -= impulse / carMass;
+
+
+            // Position correction to avoid sinking into the car
+            float percent = 5.0f;  // Correction percentage
+            float correctionMagnitude = (state.ball.radius - distance) / (1.0f / ballMass + 1.0f / carMass) * percent;
+            Eigen::Vector3f correction = correctionMagnitude * collisionNormal;
+            std::cout << correction << std::endl; 
+            state.ball.state.position += correction / ballMass;
+            state.car.state.position -= correction / carMass;
+        }
+
         state.car.state.position += state.car.state.velocity * deltaTime;
         state.ball.state.position += state.ball.state.velocity * deltaTime;
         auto elapsed = duration_cast<microseconds>(high_resolution_clock::now() - start);
@@ -927,7 +978,7 @@ public:
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
-                        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+                        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
                         ubo.proj[1][1] *= -1;
 
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
@@ -1581,11 +1632,11 @@ private:
 int main()
 {
     State state = {
-        {{Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+        {{Eigen::Vector3f(0.0f, 0.25f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
-         Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
-        {{Eigen::Vector3f(0.0f, 4.0f, 0.0f), Eigen::Vector3f(0.1f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+         Eigen::Vector3f(1.0f, 0.5f, 1.5f)},
+        {{Eigen::Vector3f(0.0f, 4.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 2.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
         {false, false, false, false}};
     InputGraphics inputGraphics(state);
 
