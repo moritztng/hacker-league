@@ -42,7 +42,7 @@ struct Ball
     float radius;
 };
 
-struct Car
+struct Cube
 {
     ObjectState state;
     Eigen::Vector3f shape;
@@ -50,8 +50,9 @@ struct Car
 
 struct State
 {
-    Car car;
+    Cube car;
     Ball ball;
+    Cube arena;
     Keys keys;
 };
 
@@ -114,45 +115,60 @@ void physics(State &state)
         rotationMatrix = Eigen::AngleAxisf(state.car.state.orientation.y(), Eigen::Vector3f::UnitY());
         Eigen::Vector3f localBallPosition = rotationMatrix.transpose() * (state.ball.state.position - state.car.state.position);
         Eigen::Vector3f halfExtents = state.car.shape / 2.0f;
-        auto distance = (localBallPosition - localBallPosition.cwiseMax(-halfExtents).cwiseMin(halfExtents)).norm(); 
+        auto distance = (localBallPosition - localBallPosition.cwiseMax(-halfExtents).cwiseMin(halfExtents)).norm();
         if (distance < state.ball.radius)
         {
-            std::cout << "collision" << std::endl; 
-            const float restitution = 0.0f; 
-            const float ballMass = 1.0f;
-            const float carMass = 10000000.0f;
+            std::cout << "collision" << std::endl;
             // Normalize the collision normal
             Eigen::Vector3f collisionNormal = state.ball.state.position - state.car.state.position;
             collisionNormal.normalize();
 
-            // Relative velocity
-            Eigen::Vector3f relativeVelocity = state.ball.state.velocity - state.car.state.velocity;
-
             // Velocity along the normal
-            float velocityAlongNormal = relativeVelocity.dot(collisionNormal);
+            float velocityAlongNormal = (state.ball.state.velocity - state.car.state.velocity).dot(collisionNormal);
 
             // Do not resolve if velocities are separating
-            if (velocityAlongNormal > 0) {
-                std::cout << "nothing" << velocityAlongNormal << std::endl;
-                continue;
+            if (velocityAlongNormal < 0)
+            {
+                state.ball.state.velocity -= velocityAlongNormal * collisionNormal;
             }
+            // state.ball.state.position += 0.1f * collisionNormal;
+        }
+        if (state.arena.shape.x() / 2 - abs(state.ball.state.position.x()) < state.ball.radius)
+        {
+            state.ball.state.velocity.x() *= -1;
+            state.ball.state.position.x() = (state.ball.state.position.x() < 0 ? -1 : 1) * (state.arena.shape.x() / 2 - state.ball.radius);
+        }
+        if (state.arena.shape.z() / 2 - abs(state.ball.state.position.z()) < state.ball.radius)
+        {
+            state.ball.state.velocity.z() *= -1;
+            state.ball.state.position.z() = (state.ball.state.position.z() < 0 ? -1 : 1) * (state.arena.shape.z() / 2 - state.ball.radius);
+        }
 
-            // Calculate the impulse scalar
-            float impulseScalar = (-(1.0f + restitution) * velocityAlongNormal) / (1.0f / ballMass + 1.0f / carMass);
-
-            // Apply the impulse to each object
-            Eigen::Vector3f impulse = impulseScalar * collisionNormal;
-            state.ball.state.velocity += impulse / ballMass;
-            state.car.state.velocity -= impulse / carMass;
-
-
-            // Position correction to avoid sinking into the car
-            float percent = 5.0f;  // Correction percentage
-            float correctionMagnitude = (state.ball.radius - distance) / (1.0f / ballMass + 1.0f / carMass) * percent;
-            Eigen::Vector3f correction = correctionMagnitude * collisionNormal;
-            std::cout << correction << std::endl; 
-            state.ball.state.position += correction / ballMass;
-            state.car.state.position -= correction / carMass;
+        Eigen::Vector3f halfDims = state.car.shape / 2.0f;
+        std::vector<Eigen::Vector2f> localCorners = {
+            {-halfDims.x(), -halfDims.z()},
+            {halfDims.x(), -halfDims.z()},
+            {-halfDims.x(), -halfDims.z()},
+            {halfDims.x(), -halfDims.z()},
+            {-halfDims.x(), halfDims.z()},
+            {halfDims.x(), halfDims.z()},
+            {-halfDims.x(), halfDims.z()},
+            {halfDims.x(), halfDims.z()}};
+        Eigen::Matrix2f rotationMatrix2;
+        rotationMatrix2 << std::cos(state.car.state.orientation.y()), -std::sin(state.car.state.orientation.y()),
+            std::sin(state.car.state.orientation.y()), std::cos(state.car.state.orientation.y());
+        Eigen::Vector2f position = {state.car.state.position.x(), state.car.state.position.z()}; 
+        for (const auto &corner : localCorners)
+        {
+            auto rotatedCorner = rotationMatrix2 * corner + position;
+            if (abs(rotatedCorner.x()) > state.arena.shape.x() / 2) {
+                state.car.state.position.x() += (rotatedCorner.x() < 0 ? 1 : -1) * (abs(rotatedCorner.x()) - state.arena.shape.x() / 2); 
+                state.car.state.velocity.x() = 0;
+            }
+            if (abs(rotatedCorner.y()) > state.arena.shape.z() / 2) {
+                state.car.state.position.z() += (rotatedCorner.y() < 0 ? 1 : -1) * (abs(rotatedCorner.y()) - state.arena.shape.z() / 2); 
+                state.car.state.velocity.z() = 0;
+            }
         }
 
         state.car.state.position += state.car.state.velocity * deltaTime;
@@ -218,7 +234,7 @@ struct Vertex
 
 struct UniformBufferObject
 {
-    alignas(16) glm::mat4 model[2];
+    alignas(16) glm::mat4 model[3];
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
 };
@@ -718,9 +734,9 @@ public:
                 createFramebuffers();
             }
             {
-                const float width = 1.0f;
-                const float height = 0.5f;
-                const float length = 1.5f;
+                float width = 1.0f;
+                float height = 0.5f;
+                float length = 1.5f;
                 float halfWidth = width / 2, halfHeight = height / 2, halfLength = length / 2;
                 std::vector<Vertex> vertices = {
                     {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
@@ -767,6 +783,29 @@ public:
                                                            static_cast<uint16_t>(next + 1)});
                         }
                     }
+                indicesOffsets.push_back(indices.size());
+
+                width = 50.0f;
+                height = 20.0f;
+                length = 100.0f;
+                halfWidth = width / 2, halfHeight = height / 2, halfLength = length / 2;
+                verticesOffset = vertices.size();
+                vertices.insert(vertices.end(), {
+                                                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
+                                                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
+                                                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},
+                                                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 1.0f, 1.0f}},
+                                                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
+                                                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
+                                                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
+                                                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 1.0f, 1.0f}},
+                                                });
+                std::vector<int> vec = {0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 0, 1, 5, 5, 4, 0, 0, 3, 7, 7, 4, 0, 1, 2, 6, 6, 5, 1};
+                for (auto &elem : vec)
+                {
+                    elem += verticesOffset;
+                }
+                indices.insert(indices.end(), vec.begin(), vec.end());
                 indicesOffsets.push_back(indices.size());
 
                 VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
@@ -977,6 +1016,7 @@ public:
                         auto rotation = glm::rotate(glm::mat4(1.0f), state.car.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.state.position.x(), state.arena.state.position.y(), state.arena.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
                         ubo.proj[1][1] *= -1;
@@ -1053,6 +1093,14 @@ public:
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
 
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, 0, 0, 0);
+
+                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[1] * 2, VK_INDEX_TYPE_UINT16);
+
+                        index = 2;
+
+                        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, 0, 0, 0);
 
                         vkCmdEndRenderPass(commandBuffer);
 
@@ -1632,11 +1680,15 @@ private:
 int main()
 {
     State state = {
-        {{Eigen::Vector3f(0.0f, 0.25f, 0.0f),
+        {{Eigen::Vector3f(0.0f, 0.25f, -5.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(1.0f, 0.5f, 1.5f)},
-        {{Eigen::Vector3f(0.0f, 4.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 2.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+        {{Eigen::Vector3f(0.0f, 2.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+        {{Eigen::Vector3f(0.0f, 10.0f, 0.0f),
+          Eigen::Vector3f(0.0f, 0.0f, 0.0f),
+          Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
+         Eigen::Vector3f(50.0f, 20.0f, 100.0f)},
         {false, false, false, false}};
     InputGraphics inputGraphics(state);
 
