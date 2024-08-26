@@ -862,41 +862,56 @@ public:
                 // Define the vertices with updated normals for an open cube
                 std::vector<Vertex> newVertices = {
                     // Front face
-                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
-                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
-                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                // Normal reversed
-                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},               // Normal reversed
-
                     {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{-halfGoalWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
-                    {{-halfGoalWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
-                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{-halfWidth + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{-halfWidth + 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
 
-                    {{halfGoalWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{halfWidth - 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
                     {{halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
-                    {{halfGoalWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{halfWidth - 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
 
-                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
-                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
-                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                // Normal reversed
-                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},               // Normal reversed
+                    {{-11, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
+                    {{-11 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{-11 + 1, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{-11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
 
-                    // Back face
-                    {{-halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
-                    {{halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},  // Normal reversed
-                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                // Normal reversed
-                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},               // Normal reversed
+                    {{-11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
+                    {{11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{-11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
 
+                    {{10, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
+                    {{10 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{10 + 1, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{10, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+
+                     // Front face
                     {{-halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{-halfGoalWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
-                    {{-halfGoalWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
-                    {{-halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{-halfWidth + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{-halfWidth + 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
 
-                    {{halfGoalWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{halfWidth - 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
                     {{halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
-                    {{halfGoalWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{halfWidth - 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+
+                    {{-11, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
+                    {{-11 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{-11 + 1, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{-11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+
+                    {{-11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
+                    {{11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{-11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+
+                    {{10, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
+                    {{10 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{10 + 1, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{10, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
 
                     // Bottom face
                     {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}}, // Normal reversed
@@ -909,25 +924,13 @@ public:
                     {{halfWidth, halfHeight, -halfLength}, {0.0f, -1.0f, 0.0f}},  // Normal reversed
                     {{halfWidth, halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},   // Normal reversed
                     {{-halfWidth, halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},  // Normal reversed
-
-                    // Left face
-                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}}, // Normal reversed
-                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},  // Normal reversed
-                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},   // Normal reversed
-                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},  // Normal reversed
-
-                    // Right face
-                    {{halfWidth, -halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}}, // Normal reversed
-                    {{halfWidth, halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}},  // Normal reversed
-                    {{halfWidth, halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},   // Normal reversed
-                    {{halfWidth, -halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},  // Normal reversed
                 };
 
                 // Insert vertices into the existing vector
                 vertices.insert(vertices.end(), newVertices.begin(), newVertices.end());
 
                 // Define the indices for the open cube
-                for (int i = verticesOffset; i < verticesOffset + 44; i += 4)
+                for (int i = verticesOffset; i < verticesOffset + 48; i += 4)
                 {
                     indices.insert(indices.end(), {static_cast<uint16_t>(i),
                                                    static_cast<uint16_t>(i + 1),
@@ -1115,10 +1118,14 @@ public:
                         UniformBufferObject ubo{};
                         auto carPosition = glm::vec3(state.car.state.position.x(), state.car.state.position.y(), state.car.state.position.z());
                         auto rotation = glm::rotate(glm::mat4(1.0f), state.car.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        Eigen::Vector2f carpos2 = Eigen::Vector2f(state.car.state.position.x(), state.car.state.position.z());
+                        Eigen::Vector2f ballpos2 = Eigen::Vector2f(state.ball.state.position.x(), state.ball.state.position.z());
+                        Eigen::Vector2f vec = carpos2 - 5 * (ballpos2 - carpos2).normalized();
+
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.state.position.x(), state.arena.state.position.y(), state.arena.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.view = glm::lookAt(carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f), carPosition, glm::vec3(0.0f, 1.0, 0.0f));
+                        ubo.view = glm::lookAt(glm::vec3(vec.x(), 1.0f, vec.y()), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z()), glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
                         ubo.proj[1][1] *= -1;
 
@@ -1785,7 +1792,7 @@ int main()
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(1.0f, 0.5f, 1.5f)},
-        {{Eigen::Vector3f(0.0f, 1.0f, 45.0f), Eigen::Vector3f(0.0f, 100.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+        {{Eigen::Vector3f(0.0f, 1.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
         {{Eigen::Vector3f(0.0f, 10.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},

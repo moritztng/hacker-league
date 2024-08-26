@@ -37,7 +37,11 @@ void main() {
     // Default color is cyan
     vec4 color;
     if (fragIndex == 0) {
-        color = vec4(0.05, 0.05, 0.05, 1.);
+        if (fragPosition.z > 0.5) {
+            color = vec4(0.0, 1.0, 1.0, 1.0);
+        } else {
+            color = vec4(0.05, 0.05, 0.05, 1.0);
+        }
     } else if (fragIndex == 1) {
         color = vec4(1.0, 1.0, 1.0, 1.0);
     } else if (fragIndex == 2) {
@@ -52,8 +56,6 @@ void main() {
             } else {
                 color = vec4(0.0, 0.5, 0.0, 1.0);   // Green
             }
-        } else if (abs(fragPosition.z) > 49.5 && abs(fragPosition.x) > 24.5) {
-            color = vec4(0.1, 0.1, 0.1, 1.0); // Dark gray
         } else {
             color = vec4(0.0, 1.0, 1.0, 1.0);
         }
