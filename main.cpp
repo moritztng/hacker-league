@@ -53,6 +53,7 @@ struct State
     Cube car;
     Ball ball;
     Cube arena;
+    Eigen::Vector2f goal;
     Keys keys;
 };
 
@@ -93,7 +94,12 @@ void physics(State &state)
             state.car.state.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
             state.car.state.velocity = backwards * orientationVector * velocityNorm;
         }
-        if (state.ball.state.position.y() > state.ball.radius)
+        if (state.ball.state.position.y() > state.arena.shape.y() - state.ball.radius)
+        {
+            state.ball.state.position.y() = state.arena.shape.y() - state.ball.radius;
+            state.ball.state.velocity.y() *= -1;
+        }
+        else if (state.ball.state.position.y() > state.ball.radius)
         {
             state.ball.state.velocity.y() -= 2 * deltaTime;
         }
@@ -118,7 +124,6 @@ void physics(State &state)
         auto distance = (localBallPosition - localBallPosition.cwiseMax(-halfExtents).cwiseMin(halfExtents)).norm();
         if (distance < state.ball.radius)
         {
-            std::cout << "collision" << std::endl;
             // Normalize the collision normal
             Eigen::Vector3f collisionNormal = state.ball.state.position - state.car.state.position;
             collisionNormal.normalize();
@@ -138,10 +143,38 @@ void physics(State &state)
             state.ball.state.velocity.x() *= -1;
             state.ball.state.position.x() = (state.ball.state.position.x() < 0 ? -1 : 1) * (state.arena.shape.x() / 2 - state.ball.radius);
         }
-        if (state.arena.shape.z() / 2 - abs(state.ball.state.position.z()) < state.ball.radius)
+        if (state.arena.shape.z() / 2 - abs(state.ball.state.position.z()) < state.ball.radius && (state.ball.state.position.y() > state.goal.y() || abs(state.ball.state.position.x()) > state.goal.x() / 2))
         {
             state.ball.state.velocity.z() *= -1;
             state.ball.state.position.z() = (state.ball.state.position.z() < 0 ? -1 : 1) * (state.arena.shape.z() / 2 - state.ball.radius);
+        }
+        if (abs(state.ball.state.position.z()) > state.arena.shape.z() / 2 + state.ball.radius)
+        {
+            state.ball.state.position *= 0;
+            state.ball.state.velocity *= 0;
+        }
+
+        if (state.ball.state.position.y() < state.goal.y() - state.ball.radius)
+        {
+            Eigen::Vector2f diff = Eigen::Vector2f(state.goal.x() / 2, state.arena.shape.z() / 2) - Eigen::Vector2f(abs(state.ball.state.position.x()), abs(state.ball.state.position.z()));
+            float diffNorm = diff.norm();
+            if (diffNorm < state.ball.radius)
+            {
+                state.ball.state.position -= Eigen::Vector3f(diff.x(), 0, diff.y()) * (state.ball.radius - diffNorm) / diffNorm;
+                state.ball.state.velocity.x() *= -1;
+                state.ball.state.velocity.z() *= -1;
+            }
+        }
+        if (abs(state.ball.state.position.x()) < state.goal.x() / 2 - state.ball.radius)
+        {
+            Eigen::Vector2f diff = Eigen::Vector2f(state.goal.y(), state.arena.shape.z() / 2) - Eigen::Vector2f(state.ball.state.position.y(), abs(state.ball.state.position.z()));
+            float diffNorm = diff.norm();
+            if (diffNorm < state.ball.radius)
+            {
+                state.ball.state.position -= Eigen::Vector3f(0, diff.x(), diff.y()) * (state.ball.radius - diffNorm) / diffNorm;
+                state.ball.state.velocity.y() *= -1;
+                state.ball.state.velocity.z() *= -1;
+            }
         }
 
         Eigen::Vector3f halfDims = state.car.shape / 2.0f;
@@ -157,16 +190,18 @@ void physics(State &state)
         Eigen::Matrix2f rotationMatrix2;
         rotationMatrix2 << std::cos(state.car.state.orientation.y()), -std::sin(state.car.state.orientation.y()),
             std::sin(state.car.state.orientation.y()), std::cos(state.car.state.orientation.y());
-        Eigen::Vector2f position = {state.car.state.position.x(), state.car.state.position.z()}; 
+        Eigen::Vector2f position = {state.car.state.position.x(), state.car.state.position.z()};
         for (const auto &corner : localCorners)
         {
             auto rotatedCorner = rotationMatrix2 * corner + position;
-            if (abs(rotatedCorner.x()) > state.arena.shape.x() / 2) {
-                state.car.state.position.x() += (rotatedCorner.x() < 0 ? 1 : -1) * (abs(rotatedCorner.x()) - state.arena.shape.x() / 2); 
+            if (abs(rotatedCorner.x()) > state.arena.shape.x() / 2)
+            {
+                state.car.state.position.x() += (rotatedCorner.x() < 0 ? 1 : -1) * (abs(rotatedCorner.x()) - state.arena.shape.x() / 2);
                 state.car.state.velocity.x() = 0;
             }
-            if (abs(rotatedCorner.y()) > state.arena.shape.z() / 2) {
-                state.car.state.position.z() += (rotatedCorner.y() < 0 ? 1 : -1) * (abs(rotatedCorner.y()) - state.arena.shape.z() / 2); 
+            if (abs(rotatedCorner.y()) > state.arena.shape.z() / 2)
+            {
+                state.car.state.position.z() += (rotatedCorner.y() < 0 ? 1 : -1) * (abs(rotatedCorner.y()) - state.arena.shape.z() / 2);
                 state.car.state.velocity.z() = 0;
             }
         }
@@ -201,9 +236,10 @@ struct SwapChainSupportDetails
 
 struct Vertex
 {
-    glm::vec3 pos;
-    glm::vec3 color;
+    glm::vec3 pos;    // Position of the vertex
+    glm::vec3 normal; // Normal for lighting calculations
 
+    // Binding description remains the same
     static VkVertexInputBindingDescription getBindingDescription()
     {
         VkVertexInputBindingDescription bindingDescription{};
@@ -214,19 +250,22 @@ struct Vertex
         return bindingDescription;
     }
 
+    // Update attribute descriptions for pos and normal
     static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
     {
         std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
 
+        // Position attribute
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
+        // Normal attribute
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, color);
+        attributeDescriptions[1].offset = offsetof(Vertex, normal);
 
         return attributeDescriptions;
     }
@@ -266,7 +305,6 @@ public:
         // init window
         {
             glfwInit();
-
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
             window = glfwCreateWindow(WIDTH, HEIGHT, "Universe", nullptr, nullptr);
@@ -739,73 +777,175 @@ public:
                 float length = 1.5f;
                 float halfWidth = width / 2, halfHeight = height / 2, halfLength = length / 2;
                 std::vector<Vertex> vertices = {
-                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
-                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
-                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},
-                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 1.0f, 1.0f}},
-                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
-                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
+                    // Front face
+                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, -1.0f}},
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, -1.0f}},
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, -1.0f}},
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, -1.0f}},
+
+                    // Back face
+                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
                     {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
-                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 1.0f, 1.0f}},
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
+
+                    // Bottom face
+                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, -1.0f, 0.0f}},
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, -1.0f, 0.0f}},
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},
+                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},
+
+                    // Top face
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
+
+                    // Left face
+                    {{-halfWidth, -halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}},
+                    {{-halfWidth, halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}},
+                    {{-halfWidth, halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},
+                    {{-halfWidth, -halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},
+
+                    // Right face
+                    {{halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
+                    {{halfWidth, halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
+                    {{halfWidth, halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
+                    {{halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
                 };
+
                 std::vector<uint16_t> indices = {
-                    0, 1, 2, 2, 3, 0, // Front face
-                    4, 5, 6, 6, 7, 4, // Back face
-                    0, 1, 5, 5, 4, 0, // Bottom face
-                    2, 3, 7, 7, 6, 2, // Top face
-                    0, 3, 7, 7, 4, 0, // Left face
-                    1, 2, 6, 6, 5, 1, // Right face
+                    0, 1, 2, 2, 3, 0,       // Front face
+                    4, 5, 6, 6, 7, 4,       // Back face
+                    8, 9, 10, 10, 11, 8,    // Bottom face
+                    12, 13, 14, 14, 15, 12, // Top face
+                    16, 17, 18, 18, 19, 16, // Left face
+                    20, 21, 22, 22, 23, 20, // Right face
                 };
+
                 indicesOffsets.push_back(indices.size());
 
                 const float PI = glm::pi<float>();
                 const int RES = 64;
                 const float R = 1.0f;
                 int verticesOffset = vertices.size();
+
+                // Generate sphere vertices
                 for (int lat = 0; lat <= RES; ++lat)
+                {
                     for (int lon = 0; lon <= RES; ++lon)
                     {
                         float theta = lat * PI / RES - PI / 2.0f;
                         float phi = lon * 2.0f * PI / RES;
 
-                        vertices.push_back({glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * R,
-                                            glm::vec3(1.0f, 0.0f, 0.0f)});
+                        glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * R;
+                        glm::vec3 normal = glm::normalize(position); // Calculate normal
+
+                        vertices.push_back({position, normal});
 
                         if (lat < RES && lon < RES)
                         {
                             uint16_t current = static_cast<uint16_t>(verticesOffset + lat * (RES + 1) + lon);
                             uint16_t next = static_cast<uint16_t>(current + RES + 1);
-                            indices.insert(indices.end(), {current,
-                                                           next,
-                                                           static_cast<uint16_t>(current + 1),
-                                                           static_cast<uint16_t>(current + 1),
-                                                           next,
-                                                           static_cast<uint16_t>(next + 1)});
+
+                            indices.insert(indices.end(), {current, next, static_cast<uint16_t>(current + 1),
+                                                           static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
                         }
                     }
+                }
+
                 indicesOffsets.push_back(indices.size());
 
+                // Define dimensions of the cube
                 width = 50.0f;
                 height = 20.0f;
                 length = 100.0f;
+                float goalWidth = 20.0f, goalHeight = 10.0f;
+                float halfGoalWidth = goalWidth / 2.0f;
                 halfWidth = width / 2, halfHeight = height / 2, halfLength = length / 2;
+
+                // Calculate vertex offset
                 verticesOffset = vertices.size();
-                vertices.insert(vertices.end(), {
-                                                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},
-                                                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},
-                                                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},
-                                                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 1.0f, 1.0f}},
-                                                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},
-                                                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},
-                                                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, 1.0f}},
-                                                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 1.0f, 1.0f}},
-                                                });
-                std::vector<int> vec = {0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 0, 1, 5, 5, 4, 0, 0, 3, 7, 7, 4, 0, 1, 2, 6, 6, 5, 1};
-                for (auto &elem : vec)
+
+                // Define the vertices with updated normals for an open cube
+                std::vector<Vertex> newVertices = {
+                    // Front face
+                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                // Normal reversed
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},               // Normal reversed
+
+                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
+                    {{-halfGoalWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{-halfGoalWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+
+                    {{halfGoalWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
+                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{halfGoalWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+
+                    {{-halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight + goalHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                // Normal reversed
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},               // Normal reversed
+
+                    // Back face
+                    {{-halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},  // Normal reversed
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                // Normal reversed
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},               // Normal reversed
+
+                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
+                    {{-halfGoalWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{-halfGoalWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{-halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+
+                    {{halfGoalWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
+                    {{halfWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{halfGoalWidth, -halfHeight + goalHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+
+                    // Bottom face
+                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 1.0f, 0.0f}},  // Normal reversed
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},   // Normal reversed
+                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, 1.0f, 0.0f}},  // Normal reversed
+
+                    // Top face
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, -1.0f, 0.0f}}, // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, -1.0f, 0.0f}},  // Normal reversed
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},   // Normal reversed
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, -1.0f, 0.0f}},  // Normal reversed
+
+                    // Left face
+                    {{-halfWidth, -halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}}, // Normal reversed
+                    {{-halfWidth, halfHeight, -halfLength}, {1.0f, 0.0f, 0.0f}},  // Normal reversed
+                    {{-halfWidth, halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},   // Normal reversed
+                    {{-halfWidth, -halfHeight, halfLength}, {1.0f, 0.0f, 0.0f}},  // Normal reversed
+
+                    // Right face
+                    {{halfWidth, -halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}}, // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {-1.0f, 0.0f, 0.0f}},  // Normal reversed
+                    {{halfWidth, halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},   // Normal reversed
+                    {{halfWidth, -halfHeight, halfLength}, {-1.0f, 0.0f, 0.0f}},  // Normal reversed
+                };
+
+                // Insert vertices into the existing vector
+                vertices.insert(vertices.end(), newVertices.begin(), newVertices.end());
+
+                // Define the indices for the open cube
+                for (int i = verticesOffset; i < verticesOffset + 44; i += 4)
                 {
-                    elem += verticesOffset;
+                    indices.insert(indices.end(), {static_cast<uint16_t>(i),
+                                                   static_cast<uint16_t>(i + 1),
+                                                   static_cast<uint16_t>(i + 2),
+                                                   static_cast<uint16_t>(i + 2),
+                                                   static_cast<uint16_t>(i + 3),
+                                                   static_cast<uint16_t>(i)});
                 }
-                indices.insert(indices.end(), vec.begin(), vec.end());
+
+                // Insert indices into the existing vector
                 indicesOffsets.push_back(indices.size());
 
                 VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
@@ -1680,15 +1820,16 @@ private:
 int main()
 {
     State state = {
-        {{Eigen::Vector3f(0.0f, 0.25f, -5.0f),
+        {{Eigen::Vector3f(0.0f, 0.25f, -48.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(1.0f, 0.5f, 1.5f)},
-        {{Eigen::Vector3f(0.0f, 2.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+        {{Eigen::Vector3f(0.0f, 1.0f, 45.0f), Eigen::Vector3f(0.0f, 100.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
         {{Eigen::Vector3f(0.0f, 10.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f),
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(50.0f, 20.0f, 100.0f)},
+        {20.0, 5.0},
         {false, false, false, false}};
     InputGraphics inputGraphics(state);
 
