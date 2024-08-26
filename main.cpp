@@ -28,12 +28,11 @@ struct ObjectState
     Eigen::Vector3f orientation;
 };
 
-struct Keys
+struct Action
 {
-    bool up;
-    bool down;
-    bool left;
-    bool right;
+    float leftTrigger;
+    float rightTrigger;
+    float leftStickX;
 };
 
 struct Ball
@@ -54,7 +53,7 @@ struct State
     Ball ball;
     Cube arena;
     Eigen::Vector2f goal;
-    Keys keys;
+    Action action;
 };
 
 void physics(State &state)
@@ -62,38 +61,31 @@ void physics(State &state)
     using namespace std::chrono;
     const microseconds frameDuration(1000000 / 60);
     const float deltaTime = frameDuration.count() / 1000000.0f;
-    const float acceleration = 2.0f;
-    const float turnRadius = 1.0f;
-    const float friction = 1.0f;
+    const float acceleration = 30.0f;
+    const float friction = 0.5f;
+    const float minTurnRadius = 0.5f;
+    const float turnRadius = 0.5f;
+    const float maxSpeed = 25.0f;
     const auto deltaVelocity = acceleration * deltaTime;
-    const auto deltaFriction = acceleration * deltaTime;
+    const auto deltaFriction = friction * deltaTime;
     while (true)
     {
         auto start = high_resolution_clock::now();
         auto orientationVector = Eigen::Vector3f(std::sin(state.car.state.orientation.y()), 0.0f, std::cos(state.car.state.orientation.y()));
-        if (state.keys.up)
+        state.car.state.velocity += orientationVector * deltaVelocity * (state.action.rightTrigger - state.action.leftTrigger) - state.car.state.velocity.normalized() * deltaFriction;
+        auto velocityNorm = state.car.state.velocity.norm();
+        if (velocityNorm > maxSpeed) {
+            state.car.state.velocity *= maxSpeed / velocityNorm;
+            velocityNorm = maxSpeed;
+        } else if (velocityNorm < deltaFriction)
         {
-            state.car.state.velocity += orientationVector * deltaVelocity;
+            state.car.state.velocity *= 0;
+            velocityNorm = 0;
         }
-        else if (state.keys.down)
-        {
-            state.car.state.velocity -= orientationVector * deltaVelocity;
-        }
-        else
-        {
-            state.car.state.velocity -= state.car.state.velocity.normalized() * deltaFriction;
-            if (state.car.state.velocity.norm() <= deltaVelocity)
-            {
-                state.car.state.velocity *= 0;
-            }
-        }
-        if (state.keys.left || state.keys.right)
-        {
-            auto velocityNorm = state.car.state.velocity.norm();
-            auto backwards = state.car.state.velocity.dot(orientationVector) < 0 ? -1 : 1;
-            state.car.state.orientation.y() += backwards * (state.keys.left ? 1 : -1) * velocityNorm / turnRadius * deltaTime;
-            state.car.state.velocity = backwards * orientationVector * velocityNorm;
-        }
+        auto backwards = state.car.state.velocity.dot(orientationVector) < 0 ? -1 : 1;
+        state.car.state.orientation.y() -= backwards * state.action.leftStickX * velocityNorm / (velocityNorm * turnRadius + minTurnRadius) * deltaTime;
+        state.car.state.velocity = backwards * Eigen::Vector3f(std::sin(state.car.state.orientation.y()), 0.0f, std::cos(state.car.state.orientation.y())) * velocityNorm;
+
         if (state.ball.state.position.y() > state.arena.shape.y() - state.ball.radius)
         {
             state.ball.state.position.y() = state.arena.shape.y() - state.ball.radius;
@@ -1096,43 +1088,12 @@ public:
             while (!glfwWindowShouldClose(window))
             {
                 glfwPollEvents();
-                int keyState = glfwGetKey(window, GLFW_KEY_UP);
-                if (keyState == GLFW_PRESS)
+                if (glfwJoystickPresent(GLFW_JOYSTICK_1))
                 {
-                    state.keys.up = true;
+                    int count;
+                    const float *axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
+                    state.action = {(axes[2] + 1) / 2, (axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1) / 2, axes[GLFW_GAMEPAD_AXIS_LEFT_X]};
                 }
-                else if (keyState == GLFW_RELEASE)
-                {
-                    state.keys.up = false;
-                }
-                keyState = glfwGetKey(window, GLFW_KEY_DOWN);
-                if (keyState == GLFW_PRESS)
-                {
-                    state.keys.down = true;
-                }
-                else if (keyState == GLFW_RELEASE)
-                {
-                    state.keys.down = false;
-                }
-                keyState = glfwGetKey(window, GLFW_KEY_LEFT);
-                if (keyState == GLFW_PRESS)
-                {
-                    state.keys.left = true;
-                }
-                else if (keyState == GLFW_RELEASE)
-                {
-                    state.keys.left = false;
-                }
-                keyState = glfwGetKey(window, GLFW_KEY_RIGHT);
-                if (keyState == GLFW_PRESS)
-                {
-                    state.keys.right = true;
-                }
-                else if (keyState == GLFW_RELEASE)
-                {
-                    state.keys.right = false;
-                }
-                // draw frame
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -1830,7 +1791,7 @@ int main()
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(50.0f, 20.0f, 100.0f)},
         {20.0, 5.0},
-        {false, false, false, false}};
+        {0.0f, 0.0f, 0.0f}};
     InputGraphics inputGraphics(state);
 
     try
