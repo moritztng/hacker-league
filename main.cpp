@@ -33,6 +33,7 @@ struct Action
     float leftTrigger;
     float rightTrigger;
     float leftStickX;
+    bool yPressed;
 };
 
 struct Ball
@@ -54,6 +55,7 @@ struct State
     Cube arena;
     Eigen::Vector2f goal;
     Action action;
+    bool ballCam;
 };
 
 void physics(State &state)
@@ -74,10 +76,12 @@ void physics(State &state)
         auto orientationVector = Eigen::Vector3f(std::sin(state.car.state.orientation.y()), 0.0f, std::cos(state.car.state.orientation.y()));
         state.car.state.velocity += orientationVector * deltaVelocity * (state.action.rightTrigger - state.action.leftTrigger) - state.car.state.velocity.normalized() * deltaFriction;
         auto velocityNorm = state.car.state.velocity.norm();
-        if (velocityNorm > maxSpeed) {
+        if (velocityNorm > maxSpeed)
+        {
             state.car.state.velocity *= maxSpeed / velocityNorm;
             velocityNorm = maxSpeed;
-        } else if (velocityNorm < deltaFriction)
+        }
+        else if (velocityNorm < deltaFriction)
         {
             state.car.state.velocity *= 0;
             velocityNorm = 0;
@@ -862,54 +866,54 @@ public:
                 // Define the vertices with updated normals for an open cube
                 std::vector<Vertex> newVertices = {
                     // Front face
-                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{-halfWidth + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
-                    {{-halfWidth + 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
-                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{-halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{-halfWidth + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{-halfWidth + 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
+                    {{-halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},      // Normal reversed
 
-                    {{halfWidth - 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
-                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
-                    {{halfWidth - 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{halfWidth - 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{halfWidth, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},      // Normal reversed
+                    {{halfWidth - 1, halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
 
-                    {{-11, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{-11 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{-11, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},         // Normal reversed
+                    {{-11 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
                     {{-11 + 1, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
                     {{-11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
 
-                    {{-11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
-                    {{11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
-                    {{-11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{-11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
+                    {{11, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},      // Normal reversed
+                    {{11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}},  // Normal reversed
+                    {{-11, -halfHeight + 5 + 1, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
 
-                    {{10, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},                  // Normal reversed
-                    {{10 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},              // Normal reversed
+                    {{10, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},         // Normal reversed
+                    {{10 + 1, -halfHeight, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
                     {{10 + 1, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}}, // Normal reversed
                     {{10, -halfHeight + 5, -halfLength}, {0.0f, 0.0f, 1.0f}},     // Normal reversed
 
-                     // Front face
-                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{-halfWidth + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
-                    {{-halfWidth + 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
-                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    // Front face
+                    {{-halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{-halfWidth + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{-halfWidth + 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},  // Normal reversed
+                    {{-halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},      // Normal reversed
 
-                    {{halfWidth - 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
-                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
-                    {{halfWidth - 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{halfWidth - 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
+                    {{halfWidth, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{halfWidth, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},      // Normal reversed
+                    {{halfWidth - 1, halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},  // Normal reversed
 
-                    {{-11, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{-11 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{-11, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},         // Normal reversed
+                    {{-11 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
                     {{-11 + 1, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
                     {{-11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
 
-                    {{-11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
-                    {{11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
-                    {{-11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{-11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
+                    {{11, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},      // Normal reversed
+                    {{11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}},  // Normal reversed
+                    {{-11, -halfHeight + 5 + 1, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
 
-                    {{10, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},                  // Normal reversed
-                    {{10 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},              // Normal reversed
+                    {{10, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},         // Normal reversed
+                    {{10 + 1, -halfHeight, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
                     {{10 + 1, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}}, // Normal reversed
                     {{10, -halfHeight + 5, halfLength}, {0.0f, 0.0f, -1.0f}},     // Normal reversed
 
@@ -1095,7 +1099,20 @@ public:
                 {
                     int count;
                     const float *axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
-                    state.action = {(axes[2] + 1) / 2, (axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1) / 2, axes[GLFW_GAMEPAD_AXIS_LEFT_X]};
+                    const unsigned char *buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &count);
+                    state.action = {(axes[2] + 1) / 2, (axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1) / 2, axes[GLFW_GAMEPAD_AXIS_LEFT_X], state.action.yPressed};
+                    if (buttons[3] == GLFW_PRESS)
+                    {
+                        if (!state.action.yPressed)
+                        {
+                            state.ballCam = !state.ballCam;
+                            state.action.yPressed = true;
+                        }
+                    }
+                    else if (buttons[3] == GLFW_RELEASE)
+                    {
+                        state.action.yPressed = false;
+                    }
                 }
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -1125,7 +1142,18 @@ public:
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.state.position.x(), state.arena.state.position.y(), state.arena.state.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.view = glm::lookAt(glm::vec3(vec.x(), 1.0f, vec.y()), glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z()), glm::vec3(0.0f, 1.0, 0.0f));
+                        glm::vec3 eye, center;
+                        if (state.ballCam)
+                        {
+                            eye = glm::vec3(vec.x(), 1.0f, vec.y());
+                            center = glm::vec3(state.ball.state.position.x(), state.ball.state.position.y(), state.ball.state.position.z());
+                        }
+                        else
+                        {
+                            eye = carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f);
+                            center = carPosition;
+                        }
+                        ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
                         ubo.proj[1][1] *= -1;
 
@@ -1798,7 +1826,8 @@ int main()
           Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
          Eigen::Vector3f(50.0f, 20.0f, 100.0f)},
         {20.0, 5.0},
-        {0.0f, 0.0f, 0.0f}};
+        {0.0f, 0.0f, 0.0f, false},
+        true};
     InputGraphics inputGraphics(state);
 
     try
