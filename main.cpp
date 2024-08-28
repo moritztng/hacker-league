@@ -1051,21 +1051,22 @@ public:
 
                     // update uniform buffer
                     {
+                        constexpr float BALLCAM_RADIUS = 5;
                         UniformBufferObject ubo{};
-                        auto carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
-                        auto rotation = glm::rotate(glm::mat4(1.0f), state.car.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        Eigen::Vector2f carpos2 = Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
-                        Eigen::Vector2f ballpos2 = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
-                        Eigen::Vector2f vec = carpos2 - 5 * (ballpos2 - carpos2).normalized();
-
+                        glm::vec3 carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
+                        glm::vec3 ballPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
+                        glm::highp_mat4 rotation = glm::rotate(glm::mat4(1.0f), state.car.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
-                        ubo.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         glm::vec3 eye, center;
                         if (state.ballCam)
                         {
-                            eye = glm::vec3(vec.x(), 1.0f, vec.y());
-                            center = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
+                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
+                            Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
+                            Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
+                            eye = glm::vec3(eyeXZ.x(), 1.0f, eyeXZ.y());
+                            center = ballPosition;
                         }
                         else
                         {
@@ -1075,7 +1076,6 @@ public:
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 150.0f);
                         ubo.proj[1][1] *= -1;
-
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
                     }
 
