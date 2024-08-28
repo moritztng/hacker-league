@@ -102,6 +102,7 @@ void physics(State &state)
         state.car.objectState.orientation.y() -= backwards * state.action.leftStickX * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
         state.car.objectState.velocity = backwards * Eigen::Vector3f(std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())) * speed;
         // wall collision
+        // TODO: make more efficient
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
         Eigen::Vector3f halfCarSize = state.car.size / 2.f;
         std::vector<Eigen::Vector2f> localCorners = {
@@ -166,14 +167,11 @@ void physics(State &state)
             state.ball.objectState.velocity.setZero();
         }
         // goal posts + crossbar
-        for (const auto &[condition, difference] : {
-                 std::make_pair(state.ball.objectState.position.y() < state.goal.y() - state.ball.radius,
-                                Eigen::Vector3f(state.goal.x() / 2 - abs(state.ball.objectState.position.x()), 0.f, state.arena.size.z() / 2 - abs(state.ball.objectState.position.z()))),
-                 std::make_pair(abs(state.ball.objectState.position.x()) < state.goal.x() / 2 - state.ball.radius,
-                                Eigen::Vector3f(0.f, state.goal.y() - state.ball.objectState.position.y(), state.arena.size.z() / 2 - abs(state.ball.objectState.position.z())))})
+        for (int i = 0; i < 2; ++i)
         {
-            if (condition)
+            if ((i == 0) ? state.ball.objectState.position.y() < state.goal.y() - state.ball.radius : abs(state.ball.objectState.position.x()) < state.goal.x() / 2 - state.ball.radius)
             {
+                Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(state.goal.x() / 2 - abs(state.ball.objectState.position.x()), 0.f, state.arena.size.z() / 2 - abs(state.ball.objectState.position.z())) : Eigen::Vector3f(0.f, state.goal.y() - state.ball.objectState.position.y(), state.arena.size.z() / 2 - abs(state.ball.objectState.position.z()));
                 float distance = difference.norm();
                 if (distance < state.ball.radius)
                 {
@@ -185,6 +183,7 @@ void physics(State &state)
             }
         }
         // car ball collision
+        // TODO: position correction
         Eigen::Vector3f collisionVector = state.ball.objectState.position - state.car.objectState.position;
         Eigen::Vector3f localBallPosition = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix().transpose() * collisionVector;
         Eigen::Vector3f halfSize = state.car.size / 2.f;
