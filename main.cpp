@@ -64,11 +64,11 @@ void physics(State &state)
     constexpr float PERIOD = 1.f / FREQUENCY;
     constexpr float MAX_ACCELERATION = 30;
     constexpr float CAR_FRICTION = 10;
-    constexpr float BALL_FRICTION = 10;
+    constexpr float BALL_FRICTION = 5;
     constexpr float TURN_RADIUS_MIN = 0.5;
     constexpr float TURN_RADIUS_RATE = 0.5;
-    constexpr float MAX_SPEED = 25;
-    constexpr float GRAVITY = 10;
+    constexpr float MAX_SPEED = 50;
+    constexpr float GRAVITY = 3;
     constexpr float BALL_RESTITUTION = 0.6;
     constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
     constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
@@ -76,6 +76,7 @@ void physics(State &state)
     constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
     while (true)
     {
+        std::cout << state.ball.objectState.position.y() << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
         // car
         // acceleration
@@ -127,18 +128,20 @@ void physics(State &state)
             }
         }
         // ball
-        // gravity
-        state.ball.objectState.velocity.y() -= DELTA_GRAVITY;
-        // ground + roof
+        // vertical
         if (state.ball.objectState.position.y() < state.ball.radius)
         {
             state.ball.objectState.position.y() = state.ball.radius;
-            state.ball.objectState.velocity.y() *= -BALL_RESTITUTION;
+            state.ball.objectState.velocity.y() *= state.ball.objectState.velocity.y() < -0.1 ? -BALL_RESTITUTION : 0;
         }
-        else if (state.ball.objectState.position.y() > state.arena.size.y() - state.ball.radius)
+        else if (state.ball.objectState.position.y() > state.ball.radius)
         {
-            state.ball.objectState.position.y() = state.arena.size.y() - state.ball.radius;
-            state.ball.objectState.velocity.y() *= -1;
+            state.ball.objectState.velocity.y() -= DELTA_GRAVITY;
+            if (state.ball.objectState.position.y() > state.arena.size.y() - state.ball.radius)
+            {
+                state.ball.objectState.position.y() = state.arena.size.y() - state.ball.radius;
+                state.ball.objectState.velocity.y() *= -1;
+            }
         }
         // friction
         if (state.ball.objectState.position.y() == state.ball.radius)
@@ -264,8 +267,8 @@ struct UniformBufferObject
     alignas(16) glm::mat4 proj;
 };
 
-constexpr uint32_t WIDTH = 800;
-constexpr uint32_t HEIGHT = 600;
+constexpr uint32_t WIDTH = 1440;
+constexpr uint32_t HEIGHT = 810;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 const std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -1051,7 +1054,7 @@ public:
 
                     // update uniform buffer
                     {
-                        constexpr float BALLCAM_RADIUS = 5;
+                        constexpr float BALLCAM_RADIUS = 8;
                         UniformBufferObject ubo{};
                         glm::vec3 carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
                         glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
@@ -1065,7 +1068,7 @@ public:
                             Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
                             Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
                             Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
-                            eye = glm::vec3(eyeXZ.x(), 1.0f, eyeXZ.y());
+                            eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
                             center = ballPosition;
                         }
                         else
@@ -1074,7 +1077,7 @@ public:
                             center = carPosition;
                         }
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
-                        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 150.0f);
+                        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 250.0f);
                         ubo.proj[1][1] *= -1;
 
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
@@ -1739,16 +1742,16 @@ int main()
         {{{0.0f, 10.0f, 0.0f},
           {0.0f, 0.0f, 0.0f},
           {0.0f, 0.0f, 0.0f}},
-         {50.0f, 20.0f, 100.0f}},
-        {{{0.0f, 0.25f, 0.0f},
+         {100.0f, 20.0f, 200.0f}},
+        {{{0.0f, 0.375f, -5.0f},
           {0.0f, 0.0f, 0.0f},
           {0.0f, 0.0f, 0.0f}},
-         {1.0f, 0.5f, 1.5f}},
-        {{{0.0f, 1.0f, -49.7f},
-          {20.0f, 0.0f, 0.0f},
+         {0.75f, 0.75f, 1.5f}},
+        {{{0.0f, 1.0f, 0.0f},
+          {0.0f, 0.0f, 0.0f},
           {0.0f, 0.0f, 0.0f}},
          1.0f},
-        {20.0, 5.0},
+        {20.0, 8.0},
         {0.0f, 0.0f, 0.0f, false},
         true};
     InputGraphics inputGraphics(state);
