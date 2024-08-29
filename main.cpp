@@ -76,7 +76,6 @@ void physics(State &state)
     constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
     while (true)
     {
-        std::cout << state.ball.objectState.position.y() << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
         // car
         // acceleration
@@ -1759,7 +1758,7 @@ int main()
         {{{0.0f, 0.375f, -5.0f},
           {0.0f, 0.0f, 0.0f},
           {0.0f, 0.0f, 0.0f}},
-         {0.75f, 0.75f, 1.5f}},
+         {1.25f, 0.75f, 2.f}},
         {{{0.0f, 1.0f, 0.0f},
           {0.0f, 0.0f, 0.0f},
           {0.0f, 0.0f, 0.0f}},
