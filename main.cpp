@@ -1054,7 +1054,7 @@ public:
                         constexpr float BALLCAM_RADIUS = 5;
                         UniformBufferObject ubo{};
                         glm::vec3 carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
-                        glm::vec3 ballPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
+                        glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
                         glm::highp_mat4 rotation = glm::rotate(glm::mat4(1.0f), state.car.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -1076,6 +1076,7 @@ public:
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
                         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 150.0f);
                         ubo.proj[1][1] *= -1;
+
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
                     }
 
@@ -1734,26 +1735,27 @@ private:
 
 int main()
 {
-    State state = {
-        {{Eigen::Vector3f(0.0f, 10.0f, 0.0f),
-          Eigen::Vector3f(0.0f, 0.0f, 0.0f),
-          Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
-         Eigen::Vector3f(50.0f, 20.0f, 100.0f)},
-        {{Eigen::Vector3f(0.0f, 0.25f, 0.0f),
-          Eigen::Vector3f(0.0f, 0.0f, 0.0f),
-          Eigen::Vector3f(0.0f, 0.0f, 0.0f)},
-         Eigen::Vector3f(1.0f, 0.5f, 1.5f)},
-        {{Eigen::Vector3f(0.0f, 1.0f, -49.7f), Eigen::Vector3f(20.0f, 0.0f, 0.0f), Eigen::Vector3f(0.0f, 0.0f, 0.0f)}, 1.0f},
+    State state{
+        {{{0.0f, 10.0f, 0.0f},
+          {0.0f, 0.0f, 0.0f},
+          {0.0f, 0.0f, 0.0f}},
+         {50.0f, 20.0f, 100.0f}},
+        {{{0.0f, 0.25f, 0.0f},
+          {0.0f, 0.0f, 0.0f},
+          {0.0f, 0.0f, 0.0f}},
+         {1.0f, 0.5f, 1.5f}},
+        {{{0.0f, 1.0f, -49.7f},
+          {20.0f, 0.0f, 0.0f},
+          {0.0f, 0.0f, 0.0f}},
+         1.0f},
         {20.0, 5.0},
         {0.0f, 0.0f, 0.0f, false},
         true};
     InputGraphics inputGraphics(state);
-
     try
     {
         std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
         std::thread physicsThread(&physics, std::ref(state));
-
         inputGraphicsThread.join();
         physicsThread.join();
     }
@@ -1762,6 +1764,5 @@ int main()
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
-
     return EXIT_SUCCESS;
 }
