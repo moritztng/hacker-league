@@ -186,18 +186,19 @@ void physics(State &state)
             }
         }
         // car ball collision
-        // TODO: position correction
-        Eigen::Vector3f collisionVector = state.ball.objectState.position - state.car.objectState.position;
-        Eigen::Vector3f localBallPosition = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix().transpose() * collisionVector;
+        Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
+        Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - state.car.objectState.position);
         Eigen::Vector3f halfSize = state.car.size / 2.f;
-        float distance = (localBallPosition - localBallPosition.cwiseMax(-halfSize).cwiseMin(halfSize)).norm();
+        Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfSize).cwiseMin(halfSize) - localBallPosition;
+        float distance = difference.norm();
         if (distance < state.ball.radius)
         {
-            Eigen::Vector3f collisionNormal = collisionVector.normalized();
+            state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
+            Eigen::Vector3f collisionNormal = (state.ball.objectState.position - state.car.objectState.position).normalized();
             float velocityAlongNormal = (state.ball.objectState.velocity - state.car.objectState.velocity).dot(collisionNormal);
             if (velocityAlongNormal < 0)
             {
-                state.ball.objectState.velocity -= velocityAlongNormal * collisionNormal;
+                state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
             }
         }
 
