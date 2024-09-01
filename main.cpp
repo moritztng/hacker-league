@@ -2,21 +2,10 @@
 #include <GLFW/glfw3.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
 #include <fstream>
-#include <stdexcept>
-#include <algorithm>
-#include <chrono>
-#include <vector>
-#include <cstring>
-#include <cstdlib>
-#include <cstdint>
-#include <limits>
-#include <array>
-#include <optional>
 #include <set>
 #include <thread>
 #include "Eigen/Dense"
@@ -379,20 +368,20 @@ public:
 
             // setup debug messenger
             {
-                if (!enableValidationLayers)
-                    return;
-
-                auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-                if (func != nullptr)
+                if (enableValidationLayers)
                 {
-                    if (func(instance, &debugCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS)
+                    auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+                    if (func != nullptr)
+                    {
+                        if (func(instance, &debugCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS)
+                        {
+                            throw std::runtime_error("failed to set up debug messenger!");
+                        }
+                    }
+                    else
                     {
                         throw std::runtime_error("failed to set up debug messenger!");
                     }
-                }
-                else
-                {
-                    throw std::runtime_error("failed to set up debug messenger!");
                 }
             }
 
