@@ -8,6 +8,7 @@
 #include <fstream>
 #include <set>
 #include <thread>
+#include <optional>
 #include "Eigen/Dense"
 
 struct ObjectState
