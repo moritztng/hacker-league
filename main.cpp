@@ -771,7 +771,7 @@ public:
             if (!file) {
                 throw std::runtime_error("error opening gamepad.txt");
             }
-            std::string fileContents(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            std::string fileContents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             glfwUpdateGamepadMappings(fileContents.c_str());
         }
 
