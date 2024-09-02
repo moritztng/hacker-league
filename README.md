@@ -1,4 +1,5 @@
 ## Install
+Currently only debian based distros with x86_64. Please help me build it on other platforms.
 ```bash
 curl -sL https://raw.githubusercontent.com/moritztng/universe/main/install.sh | bash
 ```
