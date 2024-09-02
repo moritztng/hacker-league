@@ -290,7 +290,6 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
-    SwapChainSupportDetails swapChainSupport;
 
     VkRenderPass renderPass;
     VkDescriptorSetLayout descriptorSetLayout;
@@ -399,8 +398,31 @@ private:
         return imageView;
     }
 
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
+    {
+        SwapChainSupportDetails details;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+        if (formatCount != 0)
+        {
+            details.formats.resize(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+        }
+        uint32_t presentModeCount;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+        if (presentModeCount != 0)
+        {
+            details.presentModes.resize(presentModeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+        }
+        return details;
+    }
+
     void createSwapChain()
     {
+        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+
         VkSurfaceFormatKHR surfaceFormat = swapChainSupport.formats[0];
         for (const auto &availableFormat : swapChainSupport.formats)
         {
@@ -888,26 +910,7 @@ public:
 
                     bool extensionsSupported = requiredExtensions.empty();
 
-                    // swap chain support
-                    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapChainSupport.capabilities);
-
-                    uint32_t formatCount;
-                    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-
-                    if (formatCount != 0)
-                    {
-                        swapChainSupport.formats.resize(formatCount);
-                        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, swapChainSupport.formats.data());
-                    }
-
-                    uint32_t presentModeCount;
-                    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-
-                    if (presentModeCount != 0)
-                    {
-                        swapChainSupport.presentModes.resize(presentModeCount);
-                        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, swapChainSupport.presentModes.data());
-                    }
+                    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
 
                     VkPhysicalDeviceFeatures supportedFeatures;
                     vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
@@ -1509,7 +1512,7 @@ public:
                     if (result == VK_ERROR_OUT_OF_DATE_KHR)
                     {
                         recreateSwapChain();
-                        return;
+                        continue;
                     }
                     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
                     {
