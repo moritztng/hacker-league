@@ -17,4 +17,5 @@ make
 curl -L -o ./shaders/glslc https://github.com/moritztng/universe/releases/download/v0.1/glslc
 chmod +x ./shaders/glslc
 ./shaders/compile.sh
+curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
 ```

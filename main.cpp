@@ -32,10 +32,9 @@ struct Box
 
 struct Action
 {
-    float leftTrigger;
-    float rightTrigger;
-    float leftStickX;
-    bool yPressed;
+    float throttle;
+    float steering;
+    bool ballCamPressed;
     bool close;
 };
 
@@ -71,7 +70,7 @@ void physics(State &state)
         // car
         // acceleration
         Eigen::Vector3f orientationVector = {std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())};
-        state.car.objectState.velocity += orientationVector * MAX_DELTA_SPEED * (state.action.rightTrigger - state.action.leftTrigger);
+        state.car.objectState.velocity += orientationVector * MAX_DELTA_SPEED * state.action.throttle;
         float speed = state.car.objectState.velocity.norm();
         if (speed > DELTA_CAR_FRICTION)
         {
@@ -90,7 +89,7 @@ void physics(State &state)
         }
         // steering
         int backwards = state.car.objectState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-        state.car.objectState.orientation.y() -= backwards * state.action.leftStickX * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
+        state.car.objectState.orientation.y() -= backwards * state.action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
         state.car.objectState.velocity = backwards * Eigen::Vector3f(std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())) * speed;
         // wall collision
         // TODO: make more efficient
@@ -767,6 +766,13 @@ public:
             window = glfwCreateWindow(WIDTH, HEIGHT, "Universe", nullptr, nullptr);
             glfwSetWindowUserPointer(window, this);
             glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+
+            std::ifstream file("gamepad.txt");
+            if (!file) {
+                throw std::runtime_error("error opening gamepad.txt");
+            }
+            std::string fileContents(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            glfwUpdateGamepadMappings(fileContents.c_str());
         }
 
         // init vulkan
@@ -1483,25 +1489,38 @@ public:
         {
             while (!glfwWindowShouldClose(window))
             {
+                bool gamepadExists = false;
+                GLFWgamepadstate gamepadState;
                 glfwPollEvents();
-                if (glfwJoystickPresent(GLFW_JOYSTICK_1))
+                if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
                 {
-                    int count;
-                    const float *axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
-                    const unsigned char *buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &count);
-                    state.action = {(axes[2] + 1) / 2, (axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1) / 2, axes[GLFW_GAMEPAD_AXIS_LEFT_X], state.action.yPressed};
-                    if (buttons[3] == GLFW_PRESS)
-                    {
-                        if (!state.action.yPressed)
-                        {
-                            state.ballCam = !state.ballCam;
-                            state.action.yPressed = true;
-                        }
-                    }
-                    else if (buttons[3] == GLFW_RELEASE)
-                    {
-                        state.action.yPressed = false;
-                    }
+                    gamepadExists = true;
+                    state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X], state.action.ballCamPressed};
+                }
+                if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
+                {
+                    state.ballCam = !state.ballCam;
+                    state.action.ballCamPressed = true;
+                }
+                else if ((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+                {
+                    state.action.ballCamPressed = false;
+                }
+                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                {
+                    state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
+                }
+                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                {
+                    state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
+                }
+                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                {
+                    state.action.steering = std::min(state.action.steering + 1.f, 1.f);
+                }
+                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+                {
+                    state.action.steering = std::max(state.action.steering - 1.f, -1.f);
                 }
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -1540,7 +1559,7 @@ public:
                         }
                         else
                         {
-                            eye = carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.0f, -5.0f);
+                            eye = carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
                             center = carPosition;
                         }
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
@@ -1759,7 +1778,7 @@ int main()
           {0.0f, 0.0f, 0.0f}},
          1.0f},
         {20.0, 8.0},
-        {0.0f, 0.0f, 0.0f, false, false},
+        {0.0f, 0.0f, false, false},
         true};
     InputGraphics inputGraphics(state);
     try
