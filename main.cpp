@@ -10,6 +10,8 @@
 #include <thread>
 #include <optional>
 #include <eigen3/Eigen/Dense>
+#include "shaders/vert.spv.h"
+#include "shaders/frag.spv.h"
 
 struct ObjectState
 {
@@ -537,32 +539,12 @@ private:
         throw std::runtime_error("failed to find supported depth format!");
     }
 
-    static std::vector<char> readFile(const std::string &filename)
-    {
-        std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-        if (!file.is_open())
-        {
-            throw std::runtime_error("failed to open file!");
-        }
-
-        size_t fileSize = (size_t)file.tellg();
-        std::vector<char> buffer(fileSize);
-
-        file.seekg(0);
-        file.read(buffer.data(), fileSize);
-
-        file.close();
-
-        return buffer;
-    }
-
-    VkShaderModule createShaderModule(const std::vector<char> &code)
+    VkShaderModule createShaderModule(const unsigned char *code, const size_t codeSize)
     {
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize = code.size();
-        createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
+        createInfo.codeSize = codeSize;
+        createInfo.pCode = reinterpret_cast<const uint32_t *>(code);
 
         VkShaderModule shaderModule;
         if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
@@ -1069,11 +1051,8 @@ public:
 
             // create graphics pipeline
             {
-                auto vertShaderCode = readFile("shaders/vert.spv");
-                auto fragShaderCode = readFile("shaders/frag.spv");
-
-                VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-                VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+                VkShaderModule vertShaderModule = createShaderModule(__shaders_vert_spv, __shaders_vert_spv_len);
+                VkShaderModule fragShaderModule = createShaderModule(__shaders_frag_spv, __shaders_frag_spv_len);
 
                 VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
                 vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
