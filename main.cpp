@@ -257,8 +257,8 @@ struct UniformBufferObject
     alignas(16) glm::mat4 proj;
 };
 
-constexpr uint32_t WIDTH = 1440;
-constexpr uint32_t HEIGHT = 810;
+constexpr uint32_t WIDTH = 1280;
+constexpr uint32_t HEIGHT = 720;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 const std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
