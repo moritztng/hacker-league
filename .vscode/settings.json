@@ -63,6 +63,7 @@
         "ratio": "cpp",
         "sstream": "cpp",
         "dense": "cpp",
-        "__node_handle": "cpp"
+        "__node_handle": "cpp",
+        "future": "cpp"
     }
 }

@@ -109,13 +109,21 @@ void physics(State &state)
             float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
             if (xDistance > 0)
             {
-                state.car.objectState.position.x() += (globalCorner.x() < 0 ? 1 : -1) * (xDistance + 0.001f);
-                state.car.objectState.velocity.x() = 0;
+                int leftRight = globalCorner.x() > 0 ? 1 : -1;
+                state.car.objectState.position.x() -= leftRight * (xDistance + 0.001f);
+                if (leftRight * state.car.objectState.velocity.x() > 0)
+                {
+                    state.car.objectState.velocity.x() = 0;
+                }
             }
             if (zDistance > 0)
             {
-                state.car.objectState.position.z() += (globalCorner.y() < 0 ? 1 : -1) * (zDistance + 0.001f);
-                state.car.objectState.velocity.z() = 0;
+                int backFront = globalCorner.y() > 0 ? 1 : -1;
+                state.car.objectState.position.z() -= backFront * (zDistance + 0.001f);
+                if (backFront * state.car.objectState.velocity.z() > 0)
+                {
+                    state.car.objectState.velocity.z() = 0;
+                }
             }
         }
         // ball
@@ -749,7 +757,8 @@ public:
             glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
             std::ifstream file("gamepad.txt");
-            if (!file) {
+            if (!file)
+            {
                 throw std::runtime_error("error opening gamepad.txt");
             }
             std::string fileContents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -1475,7 +1484,8 @@ public:
                 if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
                 {
                     gamepadExists = true;
-                    if (!steeringDrift.has_value()) {
+                    if (!steeringDrift.has_value())
+                    {
                         steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
                     }
                     state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
