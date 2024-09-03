@@ -109,12 +109,12 @@ void physics(State &state)
             float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
             if (xDistance > 0)
             {
-                state.car.objectState.position.x() += (globalCorner.x() < 0 ? 1 : -1) * xDistance;
+                state.car.objectState.position.x() += (globalCorner.x() < 0 ? 1 : -1) * (xDistance + 0.001f);
                 state.car.objectState.velocity.x() = 0;
             }
             if (zDistance > 0)
             {
-                state.car.objectState.position.z() += (globalCorner.y() < 0 ? 1 : -1) * zDistance;
+                state.car.objectState.position.z() += (globalCorner.y() < 0 ? 1 : -1) * (zDistance + 0.001f);
                 state.car.objectState.velocity.z() = 0;
             }
         }
@@ -320,7 +320,6 @@ private:
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
-    uint32_t currentFrame = 0;
     std::vector<uint32_t> indicesOffsets;
 
     bool framebufferResized = false;
@@ -1466,6 +1465,8 @@ public:
         }
         // main loop
         {
+            uint32_t currentFrame = 0;
+            std::optional<float> steeringDrift;
             while (!glfwWindowShouldClose(window))
             {
                 bool gamepadExists = false;
@@ -1474,7 +1475,10 @@ public:
                 if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
                 {
                     gamepadExists = true;
-                    state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X], state.action.ballCamPressed};
+                    if (!steeringDrift.has_value()) {
+                        steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                    }
+                    state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
                 }
                 if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
                 {
