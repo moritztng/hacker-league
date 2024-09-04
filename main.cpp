@@ -1490,6 +1490,9 @@ public:
                     }
                     state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
                 }
+                else {
+                    state.action = {0.f, 0.f, state.action.ballCamPressed};
+                }
                 if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
                 {
                     state.ballCam = !state.ballCam;
