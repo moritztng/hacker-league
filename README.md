@@ -20,3 +20,6 @@ chmod +x ./shaders/glslc
 make debug
 curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
 ```
+## Community
+Discord Server: https://discord.gg/BbNH27st
+I build in public on X: https://x.com/moritzthuening
