@@ -4,9 +4,10 @@ BINARY_NAME="hacker-league"
 sudo apt-get update
 sudo apt-get install -y libglfw3
 if ! lspci | grep -iqE 'vga.*(nvidia|radeon)'; then
+    echo "Integrated graphics detected"
     sudo apt-get install -y mesa-vulkan-drivers
 else
-    echo "GPU detected. Make sure that GPU drivers are installed."
+    echo "GPU detected. Make sure that GPU drivers are installed"
 fi
 mkdir hacker-league
 cd hacker-league
