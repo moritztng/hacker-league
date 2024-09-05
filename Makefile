@@ -5,17 +5,17 @@ LDFLAGS = -lvulkan -lglfw -lpthread
 
 all: debug
 
-debug: universe
+debug: hacker-league
 
 release: CXXFLAGS += -DNDEBUG
-release: universe
+release: hacker-league
 
-universe: main.cpp shaders/vert.spv.h shaders/frag.spv.h 
-	g++ $(CXXFLAGS) -o universe main.cpp $(LDFLAGS)
+hacker-league: main.cpp shaders/vert.spv.h shaders/frag.spv.h 
+	g++ $(CXXFLAGS) -o hacker-league main.cpp $(LDFLAGS)
 
 shaders/%.spv.h: shaders/shader.%
 	shaders/glslc $< -o ./shaders/$*.spv
 	xxd -i ./shaders/$*.spv > $@
 
 clean:
-	rm -f universe shaders/*spv*
+	rm -f hacker-league shaders/*spv*
