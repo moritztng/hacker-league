@@ -50,6 +50,7 @@ struct State
     bool ballCam;
 };
 
+//TODO: lots of low hanging fruit to make it more efficient
 void physics(State &state)
 {
     constexpr uint FREQUENCY = 60;
@@ -216,7 +217,6 @@ struct QueueFamilyIndices
 {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
-
     bool isComplete()
     {
         return graphicsFamily.has_value() && presentFamily.has_value();

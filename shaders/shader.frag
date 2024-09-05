@@ -28,7 +28,7 @@ void main() {
     } else if (index == 2) {
         if (normal.y > 0.5) {
             if (int(floor(position.z / stripe)) % 2 == 0) {
-                color3d = vec3(0.0, 0.392, 0.0);
+                color3d = vec3(0.0, 0.4, 0.0);
             } else {
                 color3d = vec3(0.0, 0.5, 0.0);
             }
