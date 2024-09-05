@@ -1,4 +1,4 @@
-https://github.com/user-attachments/assets/1ce9303e-a5ff-4ba6-9eac-6aa4ad94cb31
+https://github.com/user-attachments/assets/3a630d46-ec17-4da8-8879-76320ea563fe
 # Install
 Currently only debian based distros with x86_64. Please help me build it on other platforms
 ```bash
