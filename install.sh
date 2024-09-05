@@ -2,7 +2,7 @@
 
 BINARY_NAME="universe"
 sudo apt-get update
-sudo apt-get install -y libglfw3 curl
+sudo apt-get install -y libglfw3
 if ! lspci | grep -iqE 'vga.*(nvidia|radeon)'; then
     sudo apt-get install -y mesa-vulkan-drivers
 else
