@@ -1,11 +1,12 @@
 https://github.com/user-attachments/assets/1ce9303e-a5ff-4ba6-9eac-6aa4ad94cb31
 # Install
-Currently only debian based distros with x86_64. Please help me build it on other platforms.
+Currently only debian based distros with x86_64. Please help me build it on other platforms
 ```bash
 curl -sL https://raw.githubusercontent.com/moritztng/universe/main/install.sh | bash
 ```
 
 ## Play
+Use a gamepad for maximum fun
 ```bash
 cd universe
 ./universe
