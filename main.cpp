@@ -440,15 +440,6 @@ private:
             }
         }
 
-        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-        for (const auto &availablePresentMode : swapChainSupport.presentModes)
-        {
-            if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-            {
-                presentMode = availablePresentMode;
-            }
-        }
-
         VkExtent2D extent;
         if (swapChainSupport.capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
         {
@@ -502,7 +493,7 @@ private:
 
         createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        createInfo.presentMode = presentMode;
+        createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         createInfo.clipped = VK_TRUE;
 
         if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
