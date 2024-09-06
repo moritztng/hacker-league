@@ -768,6 +768,8 @@ public:
         // init vulkan
         {
             VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
+            QueueFamilyIndices queueFamilyIndices;
+
             // create instance
             {
                 if (enableValidationLayers)
@@ -914,6 +916,7 @@ public:
                     if (indices.isComplete() && extensionsSupported && !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty() && supportedFeatures.samplerAnisotropy)
                     {
                         physicalDevice = device;
+                        queueFamilyIndices = indices;
                         break;
                     }
                 }
@@ -926,10 +929,8 @@ public:
 
             // create logical device
             {
-                QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-
                 std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-                std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+                std::set<uint32_t> uniqueQueueFamilies = {queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
 
                 float queuePriority = 1.0f;
                 for (uint32_t queueFamily : uniqueQueueFamilies)
@@ -971,8 +972,8 @@ public:
                     throw std::runtime_error("failed to create logical device!");
                 }
 
-                vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
-                vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+                vkGetDeviceQueue(device, queueFamilyIndices.graphicsFamily.value(), 0, &graphicsQueue);
+                vkGetDeviceQueue(device, queueFamilyIndices.presentFamily.value(), 0, &presentQueue);
 
                 createSwapChain();
             }
@@ -1188,8 +1189,6 @@ public:
 
             // create command pool
             {
-                QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
-
                 VkCommandPoolCreateInfo poolInfo{};
                 poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
                 poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
