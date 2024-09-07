@@ -307,6 +307,7 @@ private:
 
     VkCommandPool commandPool;
 
+    VkFormat depthFormat = VK_FORMAT_UNDEFINED;
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
@@ -508,27 +509,6 @@ private:
         }
     }
 
-    VkFormat findDepthFormat()
-    {
-        std::vector<VkFormat> depthFormats = {
-            VK_FORMAT_D32_SFLOAT,
-            VK_FORMAT_D32_SFLOAT_S8_UINT,
-            VK_FORMAT_D24_UNORM_S8_UINT};
-
-        for (VkFormat format : depthFormats)
-        {
-            VkFormatProperties props;
-            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
-
-            if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
-            {
-                return format;
-            }
-        }
-
-        throw std::runtime_error("failed to find supported depth format!");
-    }
-
     VkShaderModule createShaderModule(const unsigned char *code, const size_t codeSize)
     {
         VkShaderModuleCreateInfo createInfo{};
@@ -563,8 +543,6 @@ private:
 
     void createFramebuffers()
     {
-        VkFormat depthFormat = findDepthFormat();
-
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -959,6 +937,31 @@ public:
 
                 createSwapChain();
             }
+
+            // find depth format
+            {
+                std::vector<VkFormat> depthFormats = {
+                    VK_FORMAT_D32_SFLOAT,
+                    VK_FORMAT_D32_SFLOAT_S8_UINT,
+                    VK_FORMAT_D24_UNORM_S8_UINT};
+
+                for (VkFormat format : depthFormats)
+                {
+                    VkFormatProperties props;
+                    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+
+                    if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                    {
+                        depthFormat = format;
+                        break;
+                    }
+                }
+                if (depthFormat == VK_FORMAT_UNDEFINED)
+                {
+                    throw std::runtime_error("failed to find supported depth format!");
+                }
+            }
+
             // create render pass
             {
                 VkAttachmentDescription colorAttachment{};
@@ -972,7 +975,7 @@ public:
                 colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
                 VkAttachmentDescription depthAttachment{};
-                depthAttachment.format = findDepthFormat();
+                depthAttachment.format = depthFormat;
                 depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
                 depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
