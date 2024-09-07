@@ -867,7 +867,7 @@ public:
                         vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, formats.data());
                     }
 
-                    if (indices.isComplete() && extensionsSupported && !formats.empty() && !swapChainSupport.presentModes.empty() && supportedFeatures.samplerAnisotropy)
+                    if (indices.isComplete() && extensionsSupported && !formats.empty() && !swapChainSupport.presentModes.empty())
                     {
                         physicalDevice = device;
                         queueFamilyIndices = indices;
