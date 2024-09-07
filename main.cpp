@@ -798,16 +798,17 @@ public:
                 if (enableValidationLayers)
                 {
                     auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+                    const char *errorMessage = "failed to set up debug messenger!";
                     if (func != nullptr)
                     {
                         if (func(instance, &debugCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS)
                         {
-                            throw std::runtime_error("failed to set up debug messenger!");
+                            throw std::runtime_error(errorMessage);
                         }
                     }
                     else
                     {
-                        throw std::runtime_error("failed to set up debug messenger!");
+                        throw std::runtime_error(errorMessage);
                     }
                 }
             }
@@ -862,7 +863,6 @@ public:
                     std::vector<VkSurfaceFormatKHR> formats;
                     if (formatCount != 0)
                     {
-
                         formats.resize(formatCount);
                         vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, formats.data());
                     }
