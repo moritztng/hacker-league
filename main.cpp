@@ -50,7 +50,7 @@ struct State
     bool ballCam;
 };
 
-//TODO: lots of low hanging fruit to make it more efficient
+// TODO: lots of low hanging fruit to make it more efficient, sync with graphics
 void physics(State &state)
 {
     constexpr uint FREQUENCY = 60;
@@ -449,21 +449,13 @@ private:
         {
             int width, height;
             glfwGetFramebufferSize(window, &width, &height);
-
-            VkExtent2D actualExtent = {
-                static_cast<uint32_t>(width),
-                static_cast<uint32_t>(height)};
-
-            actualExtent.width = std::clamp(actualExtent.width, swapChainSupport.capabilities.minImageExtent.width, swapChainSupport.capabilities.maxImageExtent.width);
-            actualExtent.height = std::clamp(actualExtent.height, swapChainSupport.capabilities.minImageExtent.height, swapChainSupport.capabilities.maxImageExtent.height);
-
-            extent = actualExtent;
+            extent = VkExtent2D{std::clamp(static_cast<uint32_t>(width), swapChainSupport.capabilities.minImageExtent.width, swapChainSupport.capabilities.maxImageExtent.width), std::clamp(static_cast<uint32_t>(height), swapChainSupport.capabilities.minImageExtent.height, swapChainSupport.capabilities.maxImageExtent.height)};
         }
 
-        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+        uint32_t imageCount = swapChainSupport.capabilities.minImageCount;
+        if (swapChainSupport.capabilities.maxImageCount == 0 || swapChainSupport.capabilities.minImageCount < swapChainSupport.capabilities.maxImageCount)
         {
-            imageCount = swapChainSupport.capabilities.maxImageCount;
+            imageCount++;
         }
 
         VkSwapchainCreateInfoKHR createInfo{};
@@ -1479,7 +1471,8 @@ public:
                     }
                     state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
                 }
-                else {
+                else
+                {
                     state.action = {0.f, 0.f, state.action.ballCamPressed};
                 }
                 if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
