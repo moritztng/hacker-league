@@ -213,59 +213,6 @@ void physics(State &state)
     }
 }
 
-struct QueueFamilyIndices
-{
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-    bool isComplete()
-    {
-        return graphicsFamily.has_value() && presentFamily.has_value();
-    }
-};
-
-struct SwapChainSupportDetails
-{
-    VkSurfaceCapabilitiesKHR capabilities;
-    std::vector<VkPresentModeKHR> presentModes;
-};
-
-struct Vertex
-{
-    glm::vec3 pos;
-    glm::vec3 normal;
-    static VkVertexInputBindingDescription getBindingDescription()
-    {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        return bindingDescription;
-    }
-    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
-    {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, normal);
-
-        return attributeDescriptions;
-    }
-};
-
-struct UniformBufferObject
-{
-    alignas(16) glm::mat4 model[3];
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
-};
-
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
@@ -280,6 +227,59 @@ constexpr bool enableValidationLayers = true;
 class InputGraphics
 {
 private:
+    struct QueueFamilyIndices
+    {
+        std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
+        bool isComplete()
+        {
+            return graphicsFamily.has_value() && presentFamily.has_value();
+        }
+    };
+
+    struct SwapChainSupportDetails
+    {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkPresentModeKHR> presentModes;
+    };
+
+    struct Vertex
+    {
+        glm::vec3 pos;
+        glm::vec3 normal;
+        static VkVertexInputBindingDescription getBindingDescription()
+        {
+            VkVertexInputBindingDescription bindingDescription{};
+            bindingDescription.binding = 0;
+            bindingDescription.stride = sizeof(Vertex);
+            bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+            return bindingDescription;
+        }
+        static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
+        {
+            std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+            attributeDescriptions[0].binding = 0;
+            attributeDescriptions[0].location = 0;
+            attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+            attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+            attributeDescriptions[1].binding = 0;
+            attributeDescriptions[1].location = 1;
+            attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+            attributeDescriptions[1].offset = offsetof(Vertex, normal);
+
+            return attributeDescriptions;
+        }
+    };
+
+    struct UniformBufferObject
+    {
+        alignas(16) glm::mat4 model[3];
+        alignas(16) glm::mat4 view;
+        alignas(16) glm::mat4 proj;
+    };
+
     GLFWwindow *window;
 
     VkInstance instance;
@@ -698,8 +698,8 @@ public:
             window = glfwCreateWindow(WIDTH, HEIGHT, "hacker league", nullptr, nullptr);
             glfwSetWindowUserPointer(window, this);
             glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-            
-            //TODO: environment variable
+
+            // TODO: environment variable
             std::ifstream file("gamepad.txt");
             if (!file)
             {
@@ -961,7 +961,7 @@ public:
                     throw std::runtime_error("failed to find supported depth format!");
                 }
             }
-            
+
             // create render pass
             {
                 VkAttachmentDescription colorAttachment{};
@@ -1031,11 +1031,10 @@ public:
                 uboLayoutBinding.pImmutableSamplers = nullptr;
                 uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-                std::array<VkDescriptorSetLayoutBinding, 1> bindings = {uboLayoutBinding};
                 VkDescriptorSetLayoutCreateInfo layoutInfo{};
                 layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-                layoutInfo.pBindings = bindings.data();
+                layoutInfo.bindingCount = 1;
+                layoutInfo.pBindings = &uboLayoutBinding;
 
                 if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
                 {
@@ -1130,16 +1129,16 @@ public:
                 dynamicState.pDynamicStates = dynamicStates.data();
 
                 VkPushConstantRange pushConstantRange = {};
-                pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // Stage where the push constants are used
-                pushConstantRange.offset = 0;                              // Offset into the push constant data
-                pushConstantRange.size = sizeof(uint);                     // Size of the push constant data
+                pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                pushConstantRange.offset = 0;
+                pushConstantRange.size = sizeof(uint);
 
                 VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
                 pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 pipelineLayoutInfo.setLayoutCount = 1;
                 pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-                pipelineLayoutInfo.pushConstantRangeCount = 1;               // Number of push constant ranges
-                pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange; // Push constant ranges
+                pipelineLayoutInfo.pushConstantRangeCount = 1;
+                pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
                 if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
                 {
@@ -1172,6 +1171,80 @@ public:
                 vkDestroyShaderModule(device, vertShaderModule, nullptr);
             }
 
+            // create swap chain and framebuffers
+            {
+                createSwapChainFramebuffers();
+            }
+
+            // create uniform buffers
+            {
+                VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+                uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+                uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+                uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+                {
+                    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+
+                    vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+                }
+            }
+
+            // create descriptor pool
+            {
+                VkDescriptorPoolSize poolSize{};
+                poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+                VkDescriptorPoolCreateInfo poolInfo{};
+                poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+                poolInfo.poolSizeCount = 1;
+                poolInfo.pPoolSizes = &poolSize;
+                poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to create descriptor pool!");
+                }
+            }
+
+            // create descriptor sets
+            {
+                std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+                VkDescriptorSetAllocateInfo allocInfo{};
+                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                allocInfo.descriptorPool = descriptorPool;
+                allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+                allocInfo.pSetLayouts = layouts.data();
+
+                descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+                if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to allocate descriptor sets!");
+                }
+
+                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+                {
+                    VkDescriptorBufferInfo bufferInfo{};
+                    bufferInfo.buffer = uniformBuffers[i];
+                    bufferInfo.offset = 0;
+                    bufferInfo.range = sizeof(UniformBufferObject);
+
+                    VkWriteDescriptorSet descriptorWrite{};
+                    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    descriptorWrite.dstSet = descriptorSets[i];
+                    descriptorWrite.dstBinding = 0;
+                    descriptorWrite.dstArrayElement = 0;
+                    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    descriptorWrite.descriptorCount = 1;
+                    descriptorWrite.pBufferInfo = &bufferInfo;
+
+                    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+                }
+            }
+
             // create command pool
             {
                 VkCommandPoolCreateInfo poolInfo{};
@@ -1183,10 +1256,14 @@ public:
                 {
                     throw std::runtime_error("failed to create graphics command pool!");
                 }
-
-                createSwapChainFramebuffers();
             }
+
+            // create vertex and index buffer
             {
+                // TODO: fix it for rasterizer.cullMode = VK_CULL_MODE_BACK_BIT, simplify
+                std::vector<Vertex> vertices;
+                std::vector<uint16_t> indices;
+
                 Eigen::Vector3f halfSize = state.car.size / 2.f;
                 std::vector<glm::vec3> points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
                                                   {halfSize.x(), -halfSize.y(), -halfSize.z()},
@@ -1202,7 +1279,6 @@ public:
                                                                                 {{2, 3, 7, 6}, {0.0f, 1.0f, 0.0f}},
                                                                                 {{0, 3, 7, 4}, {-1.0f, 0.0f, 0.0f}},
                                                                                 {{1, 2, 6, 5}, {1.0f, 0.0f, 0.0f}}}};
-                std::vector<Vertex> vertices;
                 for (const auto &[indices, normal] : faces)
                 {
                     for (int index : indices)
@@ -1210,7 +1286,6 @@ public:
                         vertices.push_back({points[index], normal});
                     }
                 }
-                std::vector<uint16_t> indices;
                 for (uint16_t i = 0; i < faces.size() * 4; i += 4)
                 {
                     indices.insert(indices.end(), {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3), i});
@@ -1346,76 +1421,6 @@ public:
                 vkFreeMemory(device, stagingBufferMemory, nullptr);
             }
 
-            // create uniform buffers
-            {
-                VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
-                uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-                uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-                uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
-
-                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-                {
-                    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
-
-                    vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
-                }
-            }
-
-            // create descriptor pool
-            {
-                std::array<VkDescriptorPoolSize, 1> poolSizes{};
-                poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-
-                VkDescriptorPoolCreateInfo poolInfo{};
-                poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-                poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-                poolInfo.pPoolSizes = poolSizes.data();
-                poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-
-                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
-                {
-                    throw std::runtime_error("failed to create descriptor pool!");
-                }
-            }
-
-            // create descriptor sets
-            {
-                std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-                VkDescriptorSetAllocateInfo allocInfo{};
-                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                allocInfo.descriptorPool = descriptorPool;
-                allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-                allocInfo.pSetLayouts = layouts.data();
-
-                descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-                if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
-                {
-                    throw std::runtime_error("failed to allocate descriptor sets!");
-                }
-
-                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-                {
-                    VkDescriptorBufferInfo bufferInfo{};
-                    bufferInfo.buffer = uniformBuffers[i];
-                    bufferInfo.offset = 0;
-                    bufferInfo.range = sizeof(UniformBufferObject);
-
-                    std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
-
-                    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    descriptorWrites[0].dstSet = descriptorSets[i];
-                    descriptorWrites[0].dstBinding = 0;
-                    descriptorWrites[0].dstArrayElement = 0;
-                    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    descriptorWrites[0].descriptorCount = 1;
-                    descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-                    vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-                }
-            }
-
             // create command buffers
             {
                 commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
@@ -1456,55 +1461,64 @@ public:
                 }
             }
         }
+
         // main loop
         {
             uint32_t currentFrame = 0;
             std::optional<float> steeringDrift;
             while (!glfwWindowShouldClose(window))
             {
-                bool gamepadExists = false;
-                GLFWgamepadstate gamepadState;
-                glfwPollEvents();
-                if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
+                // actions
                 {
-                    gamepadExists = true;
-                    if (!steeringDrift.has_value())
+                    bool gamepadExists = false;
+                    GLFWgamepadstate gamepadState;
+                    glfwPollEvents();
+                    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
                     {
-                        steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                        gamepadExists = true;
+                        if (!steeringDrift.has_value())
+                        {
+                            steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                        }
+                        state.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
+                        state.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
                     }
-                    state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
+                    else
+                    {
+                        state.action.throttle = 0.f;
+                        state.action.steering = 0.f;
+                    }
+                    if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
+                    {
+                        state.ballCam = !state.ballCam;
+                        state.action.ballCamPressed = true;
+                    }
+                    else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+                    {
+                        state.action.ballCamPressed = false;
+                    }
+                    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                    {
+                        state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
+                    }
+                    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                    {
+                        state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
+                    }
+                    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                    {
+                        state.action.steering = std::min(state.action.steering + 1.f, 1.f);
+                    }
+                    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+                    {
+                        state.action.steering = std::max(state.action.steering - 1.f, -1.f);
+                    }
                 }
-                else
-                {
-                    state.action = {0.f, 0.f, state.action.ballCamPressed};
-                }
-                if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
-                {
-                    state.ballCam = !state.ballCam;
-                    state.action.ballCamPressed = true;
-                }
-                else if ((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
-                {
-                    state.action.ballCamPressed = false;
-                }
-                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-                {
-                    state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-                {
-                    state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-                {
-                    state.action.steering = std::min(state.action.steering + 1.f, 1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-                {
-                    state.action.steering = std::max(state.action.steering - 1.f, -1.f);
-                }
+
+                // present
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+                    vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
                     uint32_t imageIndex;
                     VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -1550,10 +1564,7 @@ public:
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
                     }
 
-                    vkResetFences(device, 1, &inFlightFences[currentFrame]);
-
-                    vkResetCommandBuffer(commandBuffers[currentFrame], /*VkCommandBufferResetFlagBits*/ 0);
-
+                    vkResetCommandBuffer(commandBuffers[currentFrame], 0);
                     // record command buffer
                     {
                         VkCommandBuffer commandBuffer = commandBuffers[currentFrame];
@@ -1598,35 +1609,24 @@ public:
                         scissor.extent = swapChainExtent;
                         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-                        VkBuffer vertexBuffers[] = {vertexBuffer};
-                        VkDeviceSize offsets[] = {0};
-                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                        VkDeviceSize offset = 0;
+                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
 
                         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
                         vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
                         uint index = 0;
-
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[0], 1, 0, 0, 0);
 
-                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[0] * 2, VK_INDEX_TYPE_UINT16);
-
                         index = 1;
-
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-
-                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, 0, 0, 0);
-
-                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[1] * 2, VK_INDEX_TYPE_UINT16);
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, indicesOffsets[0], 0, 0);
 
                         index = 2;
-
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-
-                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, 0, 0, 0);
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, indicesOffsets[1], 0, 0);
 
                         vkCmdEndRenderPass(commandBuffer);
 
@@ -1639,18 +1639,16 @@ public:
                     VkSubmitInfo submitInfo{};
                     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-                    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-                    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+                    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
                     submitInfo.waitSemaphoreCount = 1;
-                    submitInfo.pWaitSemaphores = waitSemaphores;
-                    submitInfo.pWaitDstStageMask = waitStages;
+                    submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
+                    submitInfo.pWaitDstStageMask = &waitStage;
 
                     submitInfo.commandBufferCount = 1;
                     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
-                    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
                     submitInfo.signalSemaphoreCount = 1;
-                    submitInfo.pSignalSemaphores = signalSemaphores;
+                    submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
 
                     if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS)
                     {
@@ -1659,18 +1657,13 @@ public:
 
                     VkPresentInfoKHR presentInfo{};
                     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
                     presentInfo.waitSemaphoreCount = 1;
-                    presentInfo.pWaitSemaphores = signalSemaphores;
-
-                    VkSwapchainKHR swapChains[] = {swapChain};
+                    presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
                     presentInfo.swapchainCount = 1;
-                    presentInfo.pSwapchains = swapChains;
-
+                    presentInfo.pSwapchains = &swapChain;
                     presentInfo.pImageIndices = &imageIndex;
 
                     result = vkQueuePresentKHR(presentQueue, &presentInfo);
-
                     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
                     {
                         framebufferResized = false;
@@ -1746,22 +1739,23 @@ public:
 int main()
 {
     State state{
-        {{{0.0f, 10.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         {100.0f, 20.0f, 200.0f}},
-        {{{0.0f, 0.375f, -5.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         {1.25f, 0.75f, 2.f}},
-        {{{0.0f, 1.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         1.0f},
-        {20.0, 8.0},
-        {0.0f, 0.0f, false, false},
-        true};
+        .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
+                                  .velocity = {0.0f, 0.0f, 0.0f},
+                                  .orientation = {0.0f, 0.0f, 0.0f}},
+                  .size = {100.0f, 20.0f, 200.0f}},
+        .car = {.objectState = {.position = {0.0f, 0.375f, -5.0f},
+                                .velocity = {0.0f, 0.0f, 0.0f},
+                                .orientation = {0.0f, 0.0f, 0.0f}},
+                .size = {1.25f, 0.75f, 2.f}},
+        .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
+                                 .velocity = {0.0f, 0.0f, 0.0f},
+                                 .orientation = {0.0f, 0.0f, 0.0f}},
+                 .radius = 1.0f},
+        .goal = {20.0, 8.0},
+        .action = {.throttle = 0.0f, .steering = 0.0f, .ballCamPressed = false, .close = false},
+        .ballCam = true};
     InputGraphics inputGraphics(state);
+
     try
     {
         std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
