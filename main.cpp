@@ -13,6 +13,12 @@
 #include "shaders/vert.spv.h"
 #include "shaders/frag.spv.h"
 
+#include <netinet/in.h> // For  programming on Linux/Unix systems (use Winsock for Windows)
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>     // For close
+
 struct ObjectState
 {
     Eigen::Vector3f position;
@@ -42,6 +48,8 @@ struct Action
 
 struct State
 {
+    uint32_t id;
+    uint32_t statesBehind;
     Box arena;
     Box car;
     Sphere ball;
@@ -67,9 +75,60 @@ void physics(State &state)
     constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
     constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
     constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
+
+    constexpr size_t N_RECORDS = 60;
+
+    int udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udpSocket < 0)
+    {
+        throw std::runtime_error("Failed to create UDP socket!");
+    }
+    int flags = fcntl(udpSocket, F_GETFL, 0);
+    if (flags == -1)
+    {
+        close(udpSocket);
+        throw std::runtime_error("Failed to get socket flags");
+    }
+    if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        close(udpSocket);
+        throw std::runtime_error("Failed to set O_NONBLOCK");
+    }
+
+    struct sockaddr_in serverAddress;
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(12345);
+    serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    State records[N_RECORDS];
     while (!state.action.close)
     {
         auto start = std::chrono::high_resolution_clock::now();
+        records[state.id % N_RECORDS] = state;
+        // car
+        // acceleration
+        if (state.statesBehind == 0)
+        {
+            sendto(udpSocket, &state, sizeof(state), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+
+            State serverState;
+            int recvLength = recv(udpSocket, &serverState, sizeof(serverState), 0);
+            if (recvLength > 0)
+            {
+                if ((records[serverState.id % N_RECORDS].ball.objectState.position - serverState.ball.objectState.position).norm() > 0.001)
+                {
+                    std::cout << "correction" << std::endl;
+                    size_t recordsIndex = serverState.id % N_RECORDS;
+                    records[recordsIndex].statesBehind = state.id - serverState.id;
+                    records[recordsIndex].ball = serverState.ball;
+                    state = records[recordsIndex];
+                }
+            }
+        }
+        if (state.statesBehind > 0)
+        {
+            state.action = records[state.id % N_RECORDS].action;
+        }
         // car
         // acceleration
         Eigen::Vector3f orientationVector = {std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())};
@@ -185,6 +244,7 @@ void physics(State &state)
                 }
             }
         }
+
         // car ball collision
         Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
         Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - state.car.objectState.position);
@@ -206,11 +266,17 @@ void physics(State &state)
         state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
 
         float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-        if (elapsed < PERIOD)
+        if (state.statesBehind > 0)
+        {
+            state.statesBehind--;
+        }
+        else if (elapsed < PERIOD)
         {
             std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
         }
+        state.id++;
     }
+    close(udpSocket);
 }
 
 constexpr uint32_t WIDTH = 1280;
@@ -1470,48 +1536,51 @@ public:
             {
                 // actions
                 {
-                    bool gamepadExists = false;
-                    GLFWgamepadstate gamepadState;
                     glfwPollEvents();
-                    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
+                    if (state.statesBehind == 0)
                     {
-                        gamepadExists = true;
-                        if (!steeringDrift.has_value())
+                        bool gamepadExists = false;
+                        GLFWgamepadstate gamepadState;
+                        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
                         {
-                            steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                            gamepadExists = true;
+                            if (!steeringDrift.has_value())
+                            {
+                                steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                            }
+                            state.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
+                            state.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
                         }
-                        state.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
-                        state.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
-                    }
-                    else
-                    {
-                        state.action.throttle = 0.f;
-                        state.action.steering = 0.f;
-                    }
-                    if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
-                    {
-                        state.ballCam = !state.ballCam;
-                        state.action.ballCamPressed = true;
-                    }
-                    else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
-                    {
-                        state.action.ballCamPressed = false;
-                    }
-                    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-                    {
-                        state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
-                    }
-                    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-                    {
-                        state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
-                    }
-                    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-                    {
-                        state.action.steering = std::min(state.action.steering + 1.f, 1.f);
-                    }
-                    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-                    {
-                        state.action.steering = std::max(state.action.steering - 1.f, -1.f);
+                        else
+                        {
+                            state.action.throttle = 0.f;
+                            state.action.steering = 0.f;
+                        }
+                        if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
+                        {
+                            state.ballCam = !state.ballCam;
+                            state.action.ballCamPressed = true;
+                        }
+                        else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+                        {
+                            state.action.ballCamPressed = false;
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                        {
+                            state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                        {
+                            state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                        {
+                            state.action.steering = std::min(state.action.steering + 1.f, 1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+                        {
+                            state.action.steering = std::max(state.action.steering - 1.f, -1.f);
+                        }
                     }
                 }
 
@@ -1739,6 +1808,8 @@ public:
 int main()
 {
     State state{
+        .id = 0,
+        .statesBehind = 0,
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
                                   .velocity = {0.0f, 0.0f, 0.0f},
                                   .orientation = {0.0f, 0.0f, 0.0f}},
