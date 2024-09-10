@@ -17,7 +17,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <unistd.h>     // For close
+#include <unistd.h> // For close
 
 struct ObjectState
 {
@@ -42,6 +42,17 @@ struct Action
 {
     float throttle;
     float steering;
+};
+
+struct Player
+{
+    ObjectState carState;
+    Action action;
+};
+
+struct Input
+{
+    Action action;
     bool ballCamPressed;
     bool close;
 };
@@ -51,10 +62,12 @@ struct State
     uint32_t id;
     uint32_t statesBehind;
     Box arena;
-    Box car;
     Sphere ball;
     Eigen::Vector2f goal;
-    Action action;
+    Eigen::Vector3f carSize;
+    std::array<Player, 2> players;
+    uint8_t player;
+    Input input;
     bool ballCam;
 };
 
@@ -101,88 +114,125 @@ void physics(State &state)
     serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     State records[N_RECORDS];
-    while (!state.action.close)
+    while (!state.input.close)
     {
+        std::cout << state.players[1].action.throttle << std::endl;
+        // std::cout << "normal" << state.id << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
+        state.players[state.player].action = state.input.action;
         records[state.id % N_RECORDS] = state;
         // car
         // acceleration
+
         if (state.statesBehind == 0)
         {
+            // std::cout << "send" << state.id << std::endl;
             sendto(udpSocket, &state, sizeof(state), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
-
-            State serverState;
-            int recvLength = recv(udpSocket, &serverState, sizeof(serverState), 0);
-            if (recvLength > 0)
-            {
-                if ((records[serverState.id % N_RECORDS].ball.objectState.position - serverState.ball.objectState.position).norm() > 0.001)
-                {
-                    std::cout << "correction" << std::endl;
-                    size_t recordsIndex = serverState.id % N_RECORDS;
-                    records[recordsIndex].statesBehind = state.id - serverState.id;
-                    records[recordsIndex].ball = serverState.ball;
-                    state = records[recordsIndex];
-                }
-            }
-        }
-        if (state.statesBehind > 0)
-        {
-            state.action = records[state.id % N_RECORDS].action;
-        }
-        // car
-        // acceleration
-        Eigen::Vector3f orientationVector = {std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())};
-        state.car.objectState.velocity += orientationVector * MAX_DELTA_SPEED * state.action.throttle;
-        float speed = state.car.objectState.velocity.norm();
-        if (speed > DELTA_CAR_FRICTION)
-        {
-            state.car.objectState.velocity -= state.car.objectState.velocity.normalized() * DELTA_CAR_FRICTION;
-            speed -= DELTA_CAR_FRICTION;
-            if (speed > MAX_SPEED)
-            {
-                state.car.objectState.velocity *= MAX_SPEED / speed;
-                speed = MAX_SPEED;
-            }
         }
         else
         {
-            state.car.objectState.velocity.setZero();
-            speed = 0;
+            state.statesBehind--;
         }
-        // steering
-        int backwards = state.car.objectState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-        state.car.objectState.orientation.y() -= backwards * state.action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
-        state.car.objectState.velocity = backwards * Eigen::Vector3f(std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())) * speed;
-        // wall collision
-        // TODO: make more efficient
+        State serverState;
+        int recvLength = recv(udpSocket, &serverState, sizeof(serverState), 0);
+        if (recvLength > 0)
+        {
+            // std::cout << "receive" << serverState.id << std::endl;
+            size_t recordsIndex = serverState.id % N_RECORDS;
+            for (int i = 0; i < state.players.size(); i++)
+            {
+                if (i != state.player)
+                {
+                    records[recordsIndex].players[i] = serverState.players[i];
+                }
+            }
+            // if ((records[serverState.id % N_RECORDS].ball.objectState.position - serverState.ball.objectState.position).norm() > 0.001)
+            // {
+            // std::cout << "correction" << std::endl;
+            records[recordsIndex].ball = serverState.ball;
+            records[recordsIndex].statesBehind = state.id - serverState.id;
+            state = records[recordsIndex];
+            // std::cout << "new" << state.id << std::endl;
+
+            // }
+        }
+        if (state.statesBehind > 0)
+        {
+            state.players[state.player].action = records[state.id % N_RECORDS].players[state.player].action;
+        }
+        // // car
+        // acceleration
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
-        Eigen::Vector3f halfCarSize = state.car.size / 2.f;
+        Eigen::Vector3f halfCarSize = state.carSize / 2.f;
         std::vector<Eigen::Vector2f> localCorners = {
             {-halfCarSize.x(), -halfCarSize.z()},
             {halfCarSize.x(), -halfCarSize.z()},
             {-halfCarSize.x(), halfCarSize.z()},
             {halfCarSize.x(), halfCarSize.z()}};
-        for (const auto &localCorner : localCorners)
+        for (auto &[carState, action] : state.players)
         {
-            Eigen::Vector2f globalCorner = Eigen::Rotation2Df(state.car.objectState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
-            float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
-            float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
-            if (xDistance > 0)
+            Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
+            carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
+            float speed = carState.velocity.norm();
+            if (speed > DELTA_CAR_FRICTION)
             {
-                int leftRight = globalCorner.x() > 0 ? 1 : -1;
-                state.car.objectState.position.x() -= leftRight * (xDistance + 0.001f);
-                if (leftRight * state.car.objectState.velocity.x() > 0)
+                carState.velocity -= carState.velocity.normalized() * DELTA_CAR_FRICTION;
+                speed -= DELTA_CAR_FRICTION;
+                if (speed > MAX_SPEED)
                 {
-                    state.car.objectState.velocity.x() = 0;
+                    carState.velocity *= MAX_SPEED / speed;
+                    speed = MAX_SPEED;
                 }
             }
-            if (zDistance > 0)
+            else
             {
-                int backFront = globalCorner.y() > 0 ? 1 : -1;
-                state.car.objectState.position.z() -= backFront * (zDistance + 0.001f);
-                if (backFront * state.car.objectState.velocity.z() > 0)
+                carState.velocity.setZero();
+                speed = 0;
+            }
+            // steering
+            int backwards = carState.velocity.dot(orientationVector) < 0 ? -1 : 1;
+            carState.orientation.y() -= backwards * action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
+            carState.velocity = backwards * Eigen::Vector3f(std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())) * speed;
+            // wall collision
+            // TODO: make more efficient
+            for (const auto &localCorner : localCorners)
+            {
+                Eigen::Vector2f globalCorner = Eigen::Rotation2Df(carState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(carState.position.x(), carState.position.z());
+                float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
+                float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
+                if (xDistance > 0)
                 {
-                    state.car.objectState.velocity.z() = 0;
+                    int leftRight = globalCorner.x() > 0 ? 1 : -1;
+                    carState.position.x() -= leftRight * (xDistance + 0.001f);
+                    if (leftRight * carState.velocity.x() > 0)
+                    {
+                        carState.velocity.x() = 0;
+                    }
+                }
+                if (zDistance > 0)
+                {
+                    int backFront = globalCorner.y() > 0 ? 1 : -1;
+                    carState.position.z() -= backFront * (zDistance + 0.001f);
+                    if (backFront * carState.velocity.z() > 0)
+                    {
+                        carState.velocity.z() = 0;
+                    }
+                }
+            }
+
+            // car ball collision
+            Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(carState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
+            Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - carState.position);
+            Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
+            float distance = difference.norm();
+            if (distance < state.ball.radius)
+            {
+                state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
+                Eigen::Vector3f collisionNormal = (state.ball.objectState.position - carState.position).normalized();
+                float velocityAlongNormal = (state.ball.objectState.velocity - carState.velocity).dot(collisionNormal);
+                if (velocityAlongNormal < 0)
+                {
+                    state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
                 }
             }
         }
@@ -245,36 +295,17 @@ void physics(State &state)
             }
         }
 
-        // car ball collision
-        Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
-        Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - state.car.objectState.position);
-        Eigen::Vector3f halfSize = state.car.size / 2.f;
-        Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfSize).cwiseMin(halfSize) - localBallPosition;
-        float distance = difference.norm();
-        if (distance < state.ball.radius)
-        {
-            state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
-            Eigen::Vector3f collisionNormal = (state.ball.objectState.position - state.car.objectState.position).normalized();
-            float velocityAlongNormal = (state.ball.objectState.velocity - state.car.objectState.velocity).dot(collisionNormal);
-            if (velocityAlongNormal < 0)
-            {
-                state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
-            }
-        }
-
-        state.car.objectState.position += state.car.objectState.velocity * PERIOD;
+        for (auto &[carState, _] : state.players)
+            carState.position += carState.velocity * PERIOD;
         state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
 
         float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-        if (state.statesBehind > 0)
-        {
-            state.statesBehind--;
-        }
-        else if (elapsed < PERIOD)
+        if (state.statesBehind == 0 && elapsed < PERIOD)
         {
             std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
         }
         state.id++;
+        // std::cout << "increment" << state.id << std::endl;
     }
     close(udpSocket);
 }
@@ -341,7 +372,7 @@ private:
 
     struct UniformBufferObject
     {
-        alignas(16) glm::mat4 model[3];
+        alignas(16) glm::mat4 model[4];
         alignas(16) glm::mat4 view;
         alignas(16) glm::mat4 proj;
     };
@@ -1329,58 +1360,10 @@ public:
                 // TODO: fix it for rasterizer.cullMode = VK_CULL_MODE_BACK_BIT, simplify
                 std::vector<Vertex> vertices;
                 std::vector<uint16_t> indices;
-
-                Eigen::Vector3f halfSize = state.car.size / 2.f;
-                std::vector<glm::vec3> points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
-                                                  {halfSize.x(), -halfSize.y(), -halfSize.z()},
-                                                  {halfSize.x(), halfSize.y(), -halfSize.z()},
-                                                  {-halfSize.x(), halfSize.y(), -halfSize.z()},
-                                                  {-halfSize.x(), -halfSize.y(), halfSize.z()},
-                                                  {halfSize.x(), -halfSize.y(), halfSize.z()},
-                                                  {halfSize.x(), halfSize.y(), halfSize.z()},
-                                                  {-halfSize.x(), halfSize.y(), halfSize.z()}}};
-                std::vector<std::pair<std::array<int, 4>, glm::vec3>> faces = {{{{0, 1, 2, 3}, {0.0f, 0.0f, -1.0f}},
-                                                                                {{4, 5, 6, 7}, {0.0f, 0.0f, 1.0f}},
-                                                                                {{0, 1, 5, 4}, {0.0f, -1.0f, 0.0f}},
-                                                                                {{2, 3, 7, 6}, {0.0f, 1.0f, 0.0f}},
-                                                                                {{0, 3, 7, 4}, {-1.0f, 0.0f, 0.0f}},
-                                                                                {{1, 2, 6, 5}, {1.0f, 0.0f, 0.0f}}}};
-                for (const auto &[indices, normal] : faces)
-                {
-                    for (int index : indices)
-                    {
-                        vertices.push_back({points[index], normal});
-                    }
-                }
-                for (uint16_t i = 0; i < faces.size() * 4; i += 4)
-                {
-                    indices.insert(indices.end(), {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3), i});
-                }
-                indicesOffsets.push_back(indices.size());
-
-                int verticesOffset = vertices.size();
-                const float PI = glm::pi<float>();
-                constexpr int RESOLUTION = 32;
-                for (int latitude = 0; latitude <= RESOLUTION; ++latitude)
-                {
-                    for (int longitude = 0; longitude <= RESOLUTION; ++longitude)
-                    {
-                        float theta = latitude * PI / RESOLUTION - PI / 2.f;
-                        float phi = longitude * 2.f * PI / RESOLUTION;
-                        glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * state.ball.radius;
-                        glm::vec3 normal = glm::normalize(position);
-                        vertices.push_back({position, normal});
-
-                        if (latitude < RESOLUTION && longitude < RESOLUTION)
-                        {
-                            uint16_t current = static_cast<uint16_t>(verticesOffset + latitude * (RESOLUTION + 1) + longitude);
-                            uint16_t next = static_cast<uint16_t>(current + RESOLUTION + 1);
-                            indices.insert(indices.end(), {current, next, static_cast<uint16_t>(current + 1),
-                                                           static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
-                        }
-                    }
-                }
-                indicesOffsets.push_back(indices.size());
+                Eigen::Vector3f halfSize;
+                std::vector<glm::vec3> points;
+                std::vector<std::pair<std::array<int, 4>, glm::vec3>> faces;
+                int verticesOffset;
 
                 float post = 1;
                 float halfGoalWidth = state.goal.x() / 2.f;
@@ -1440,7 +1423,59 @@ public:
                     {{30, 31, 32, 33}, {0.0f, 0.0f, -1.0f}},
                     {{29, 33, 34, 35}, {0.0f, 0.0f, -1.0f}},
                 };
+                for (const auto &[indices, normal] : faces)
+                {
+                    for (int index : indices)
+                    {
+                        vertices.push_back({points[index], normal});
+                    }
+                }
+                for (uint16_t i = 0; i < faces.size() * 4; i += 4)
+                {
+                    indices.insert(indices.end(), {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3), i});
+                }
+                indicesOffsets.push_back(indices.size());
+
                 verticesOffset = vertices.size();
+                const float PI = glm::pi<float>();
+                constexpr int RESOLUTION = 32;
+                for (int latitude = 0; latitude <= RESOLUTION; ++latitude)
+                {
+                    for (int longitude = 0; longitude <= RESOLUTION; ++longitude)
+                    {
+                        float theta = latitude * PI / RESOLUTION - PI / 2.f;
+                        float phi = longitude * 2.f * PI / RESOLUTION;
+                        glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * state.ball.radius;
+                        glm::vec3 normal = glm::normalize(position);
+                        vertices.push_back({position, normal});
+
+                        if (latitude < RESOLUTION && longitude < RESOLUTION)
+                        {
+                            uint16_t current = static_cast<uint16_t>(verticesOffset + latitude * (RESOLUTION + 1) + longitude);
+                            uint16_t next = static_cast<uint16_t>(current + RESOLUTION + 1);
+                            indices.insert(indices.end(), {current, next, static_cast<uint16_t>(current + 1),
+                                                           static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
+                        }
+                    }
+                }
+                indicesOffsets.push_back(indices.size());
+
+                verticesOffset = vertices.size();
+                halfSize = state.carSize / 2.f;
+                points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
+                           {halfSize.x(), -halfSize.y(), -halfSize.z()},
+                           {halfSize.x(), halfSize.y(), -halfSize.z()},
+                           {-halfSize.x(), halfSize.y(), -halfSize.z()},
+                           {-halfSize.x(), -halfSize.y(), halfSize.z()},
+                           {halfSize.x(), -halfSize.y(), halfSize.z()},
+                           {halfSize.x(), halfSize.y(), halfSize.z()},
+                           {-halfSize.x(), halfSize.y(), halfSize.z()}}};
+                faces = {{{{0, 1, 2, 3}, {0.0f, 0.0f, -1.0f}},
+                          {{4, 5, 6, 7}, {0.0f, 0.0f, 1.0f}},
+                          {{0, 1, 5, 4}, {0.0f, -1.0f, 0.0f}},
+                          {{2, 3, 7, 6}, {0.0f, 1.0f, 0.0f}},
+                          {{0, 3, 7, 4}, {-1.0f, 0.0f, 0.0f}},
+                          {{1, 2, 6, 5}, {1.0f, 0.0f, 0.0f}}}};
                 for (const auto &[indices, normal] : faces)
                 {
                     for (int index : indices)
@@ -1537,7 +1572,7 @@ public:
                 // actions
                 {
                     glfwPollEvents();
-                    if (state.statesBehind == 0)
+                    if (true) //(state.statesBehind == 0)
                     {
                         bool gamepadExists = false;
                         GLFWgamepadstate gamepadState;
@@ -1548,42 +1583,41 @@ public:
                             {
                                 steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
                             }
-                            state.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
-                            state.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
+                            state.input.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
+                            state.input.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
                         }
                         else
                         {
-                            state.action.throttle = 0.f;
-                            state.action.steering = 0.f;
+                            state.input.action.throttle = 0.f;
+                            state.input.action.steering = 0.f;
                         }
-                        if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
+                        if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.input.ballCamPressed)
                         {
                             state.ballCam = !state.ballCam;
-                            state.action.ballCamPressed = true;
+                            state.input.ballCamPressed = true;
                         }
                         else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
                         {
-                            state.action.ballCamPressed = false;
+                            state.input.ballCamPressed = false;
                         }
                         if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
                         {
-                            state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
+                            state.input.action.throttle = std::min(state.input.action.throttle + 1.f, 1.f);
                         }
                         if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
                         {
-                            state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
+                            state.input.action.throttle = std::max(state.input.action.throttle - 1.f, -1.f);
                         }
                         if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
                         {
-                            state.action.steering = std::min(state.action.steering + 1.f, 1.f);
+                            state.input.action.steering = std::min(state.input.action.steering + 1.f, 1.f);
                         }
                         if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
                         {
-                            state.action.steering = std::max(state.action.steering - 1.f, -1.f);
+                            state.input.action.steering = std::max(state.input.action.steering - 1.f, -1.f);
                         }
                     }
                 }
-
                 // present
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -1606,16 +1640,17 @@ public:
                     {
                         constexpr float BALLCAM_RADIUS = 8;
                         UniformBufferObject ubo{};
-                        glm::vec3 carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
                         glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
-                        glm::highp_mat4 rotation = glm::rotate(glm::mat4(1.0f), state.car.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
+                        ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        for (int i = 0; i < state.players.size(); i++)
+                        {
+                            ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        }
                         glm::vec3 eye, center;
                         if (state.ballCam)
                         {
-                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
+                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.player].carState.position.x(), state.players[state.player].carState.position.z());
                             Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
                             Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
                             eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
@@ -1623,7 +1658,8 @@ public:
                         }
                         else
                         {
-                            eye = carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
+                            auto carPosition = glm::vec3(state.players[state.player].carState.position.x(), state.players[state.player].carState.position.y(), state.players[state.player].carState.position.z());
+                            eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[state.player].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
                             center = carPosition;
                         }
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
@@ -1693,9 +1729,12 @@ public:
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, indicesOffsets[0], 0, 0);
 
-                        index = 2;
-                        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, indicesOffsets[1], 0, 0);
+                        for (int i = 0; i < state.players.size(); i++)
+                        {
+                            index = 2 + i;
+                            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                            vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, indicesOffsets[1], 0, 0);
+                        }
 
                         vkCmdEndRenderPass(commandBuffer);
 
@@ -1752,7 +1791,7 @@ public:
 
         // cleanup
         {
-            state.action.close = true;
+            state.input.close = true;
             cleanupSwapChain();
 
             vkDestroyPipeline(device, graphicsPipeline, nullptr);
@@ -1814,16 +1853,22 @@ int main()
                                   .velocity = {0.0f, 0.0f, 0.0f},
                                   .orientation = {0.0f, 0.0f, 0.0f}},
                   .size = {100.0f, 20.0f, 200.0f}},
-        .car = {.objectState = {.position = {0.0f, 0.375f, -5.0f},
-                                .velocity = {0.0f, 0.0f, 0.0f},
-                                .orientation = {0.0f, 0.0f, 0.0f}},
-                .size = {1.25f, 0.75f, 2.f}},
         .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
                                  .velocity = {0.0f, 0.0f, 0.0f},
                                  .orientation = {0.0f, 0.0f, 0.0f}},
                  .radius = 1.0f},
         .goal = {20.0, 8.0},
-        .action = {.throttle = 0.0f, .steering = 0.0f, .ballCamPressed = false, .close = false},
+        .carSize = {1.25f, 0.75f, 2.f},
+        .players = {Player{.carState = {.position = {0.0f, 0.375f, 5.0f},
+                                        .velocity = {0.0f, 0.0f, 0.0f},
+                                        .orientation = {0.0f, 0.0f, 0.0f}},
+                           .action = {.throttle = 0.0f, .steering = 0.0f}},
+                    Player{.carState = {.position = {3.0f, 0.375f, 5.0f},
+                                        .velocity = {0.0f, 0.0f, 0.0f},
+                                        .orientation = {0.0f, 0.0f, 0.0f}},
+                           .action = {.throttle = 0.0f, .steering = 0.0f}}},
+        .player = 0,
+        .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
         .ballCam = true};
     InputGraphics inputGraphics(state);
 

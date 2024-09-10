@@ -37,15 +37,30 @@ struct Action
     bool close;
 };
 
+struct Player
+{
+    ObjectState carState;
+    Action action;
+};
+
+struct Input
+{
+    Action action;
+    bool ballCamPressed;
+    bool close;
+};
+
 struct State
 {
     uint32_t id;
     uint32_t statesBehind;
     Box arena;
-    Box car;
     Sphere ball;
     Eigen::Vector2f goal;
-    Action action;
+    Eigen::Vector3f carSize;
+    std::array<Player, 2> players;
+    uint8_t player;
+    Input input;
     bool ballCam;
 };
 
@@ -58,16 +73,22 @@ int main()
                                   .velocity = {0.0f, 0.0f, 0.0f},
                                   .orientation = {0.0f, 0.0f, 0.0f}},
                   .size = {100.0f, 20.0f, 200.0f}},
-        .car = {.objectState = {.position = {0.0f, 0.375f, -5.0f},
-                                .velocity = {0.0f, 0.0f, 0.0f},
-                                .orientation = {0.0f, 0.0f, 0.0f}},
-                .size = {1.25f, 0.75f, 2.f}},
         .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
                                  .velocity = {0.0f, 0.0f, 0.0f},
                                  .orientation = {0.0f, 0.0f, 0.0f}},
                  .radius = 1.0f},
         .goal = {20.0, 8.0},
-        .action = {.throttle = 0.0f, .steering = 0.0f, .ballCamPressed = false, .close = false},
+        .carSize = {1.25f, 0.75f, 2.f},
+        .players = {Player{.carState = {.position = {0.0f, 0.375f, 5.0f},
+                                        .velocity = {0.0f, 0.0f, 0.0f},
+                                        .orientation = {0.0f, 0.0f, 0.0f}},
+                           .action = {.throttle = 0.0f, .steering = 0.0f}},
+                    Player{.carState = {.position = {3.0f, 0.375f, 5.0f},
+                                        .velocity = {0.0f, 0.0f, 0.0f},
+                                        .orientation = {0.0f, 0.0f, 0.0f}},
+                           .action = {.throttle = 1.0f, .steering = 0.0f}}},
+        .player = 0,
+        .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
         .ballCam = true};
     int udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (udpSocket < 0)
@@ -97,9 +118,17 @@ int main()
             close(udpSocket);
             throw std::runtime_error("error reading");
         }
-        state.action = clientState.action;
-        state.car = clientState.car;
-        sendto(udpSocket, &state, sizeof(state), 0, &clientAddress, clientAddressLength);
+        state.players[clientState.player] = clientState.players[clientState.player];
+        for (int i = 0; i < clientState.players.size(); i++)
+        {
+            if (i != clientState.player)
+            {
+                std::cout << state.players[i].action.throttle << std::endl;
+                clientState.players[i] = state.players[i];
+            }
+        }
+        clientState.ball = state.ball;
+        sendto(udpSocket, &clientState, sizeof(clientState), 0, &clientAddress, clientAddressLength);
 
         constexpr uint FREQUENCY = 60;
         constexpr float PERIOD = 1.f / FREQUENCY;
@@ -117,58 +146,77 @@ int main()
         constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
         // car
         // acceleration
-        Eigen::Vector3f orientationVector = {std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())};
-        state.car.objectState.velocity += orientationVector * MAX_DELTA_SPEED * state.action.throttle;
-        float speed = state.car.objectState.velocity.norm();
-        if (speed > DELTA_CAR_FRICTION)
-        {
-            state.car.objectState.velocity -= state.car.objectState.velocity.normalized() * DELTA_CAR_FRICTION;
-            speed -= DELTA_CAR_FRICTION;
-            if (speed > MAX_SPEED)
-            {
-                state.car.objectState.velocity *= MAX_SPEED / speed;
-                speed = MAX_SPEED;
-            }
-        }
-        else
-        {
-            state.car.objectState.velocity.setZero();
-            speed = 0;
-        }
-        // steering
-        int backwards = state.car.objectState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-        state.car.objectState.orientation.y() -= backwards * state.action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
-        state.car.objectState.velocity = backwards * Eigen::Vector3f(std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())) * speed;
-        // wall collision
-        // TODO: make more efficient
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
-        Eigen::Vector3f halfCarSize = state.car.size / 2.f;
+        Eigen::Vector3f halfCarSize = state.carSize / 2.f;
         std::vector<Eigen::Vector2f> localCorners = {
             {-halfCarSize.x(), -halfCarSize.z()},
             {halfCarSize.x(), -halfCarSize.z()},
             {-halfCarSize.x(), halfCarSize.z()},
             {halfCarSize.x(), halfCarSize.z()}};
-        for (const auto &localCorner : localCorners)
+        for (auto &[carState, action] : state.players)
         {
-            Eigen::Vector2f globalCorner = Eigen::Rotation2Df(state.car.objectState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
-            float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
-            float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
-            if (xDistance > 0)
+            Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
+            carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
+            float speed = carState.velocity.norm();
+            if (speed > DELTA_CAR_FRICTION)
             {
-                int leftRight = globalCorner.x() > 0 ? 1 : -1;
-                state.car.objectState.position.x() -= leftRight * (xDistance + 0.001f);
-                if (leftRight * state.car.objectState.velocity.x() > 0)
+                carState.velocity -= carState.velocity.normalized() * DELTA_CAR_FRICTION;
+                speed -= DELTA_CAR_FRICTION;
+                if (speed > MAX_SPEED)
                 {
-                    state.car.objectState.velocity.x() = 0;
+                    carState.velocity *= MAX_SPEED / speed;
+                    speed = MAX_SPEED;
                 }
             }
-            if (zDistance > 0)
+            else
             {
-                int backFront = globalCorner.y() > 0 ? 1 : -1;
-                state.car.objectState.position.z() -= backFront * (zDistance + 0.001f);
-                if (backFront * state.car.objectState.velocity.z() > 0)
+                carState.velocity.setZero();
+                speed = 0;
+            }
+            // steering
+            int backwards = carState.velocity.dot(orientationVector) < 0 ? -1 : 1;
+            carState.orientation.y() -= backwards * action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
+            carState.velocity = backwards * Eigen::Vector3f(std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())) * speed;
+            // wall collision
+            // TODO: make more efficient
+            for (const auto &localCorner : localCorners)
+            {
+                Eigen::Vector2f globalCorner = Eigen::Rotation2Df(carState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(carState.position.x(), carState.position.z());
+                float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
+                float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
+                if (xDistance > 0)
                 {
-                    state.car.objectState.velocity.z() = 0;
+                    int leftRight = globalCorner.x() > 0 ? 1 : -1;
+                    carState.position.x() -= leftRight * (xDistance + 0.001f);
+                    if (leftRight * carState.velocity.x() > 0)
+                    {
+                        carState.velocity.x() = 0;
+                    }
+                }
+                if (zDistance > 0)
+                {
+                    int backFront = globalCorner.y() > 0 ? 1 : -1;
+                    carState.position.z() -= backFront * (zDistance + 0.001f);
+                    if (backFront * carState.velocity.z() > 0)
+                    {
+                        carState.velocity.z() = 0;
+                    }
+                }
+            }
+
+            // car ball collision
+            Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(carState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
+            Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - carState.position);
+            Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
+            float distance = difference.norm();
+            if (distance < state.ball.radius)
+            {
+                state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
+                Eigen::Vector3f collisionNormal = (state.ball.objectState.position - carState.position).normalized();
+                float velocityAlongNormal = (state.ball.objectState.velocity - carState.velocity).dot(collisionNormal);
+                if (velocityAlongNormal < 0)
+                {
+                    state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
                 }
             }
         }
@@ -230,24 +278,9 @@ int main()
                 }
             }
         }
-        // car ball collision
-        Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
-        Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - state.car.objectState.position);
-        Eigen::Vector3f halfSize = state.car.size / 2.f;
-        Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfSize).cwiseMin(halfSize) - localBallPosition;
-        float distance = difference.norm();
-        if (distance < state.ball.radius)
-        {
-            state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
-            Eigen::Vector3f collisionNormal = (state.ball.objectState.position - state.car.objectState.position).normalized();
-            float velocityAlongNormal = (state.ball.objectState.velocity - state.car.objectState.velocity).dot(collisionNormal);
-            if (velocityAlongNormal < 0)
-            {
-                state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
-            }
-        }
 
-        state.car.objectState.position += state.car.objectState.velocity * PERIOD;
+        for (auto &[carState, _] : state.players)
+            carState.position += carState.velocity * PERIOD;
         state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
 
         state.id++;
