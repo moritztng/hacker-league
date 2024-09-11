@@ -60,13 +60,12 @@ struct Input
 struct State
 {
     uint32_t id;
-    uint32_t statesBehind;
     Box arena;
     Sphere ball;
     Eigen::Vector2f goal;
     Eigen::Vector3f carSize;
-    std::array<Player, 2> players;
-    uint8_t player;
+    Player players[2];
+    uint8_t playerId;
     Input input;
     bool ballCam;
 };
@@ -113,53 +112,65 @@ void physics(State &state)
     serverAddress.sin_port = htons(12345);
     serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
 
+    uint32_t statesBehind = 0;
     State records[N_RECORDS];
     while (!state.input.close)
     {
-        std::cout << state.players[1].action.throttle << std::endl;
-        // std::cout << "normal" << state.id << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
-        state.players[state.player].action = state.input.action;
-        records[state.id % N_RECORDS] = state;
-        // car
-        // acceleration
-
-        if (state.statesBehind == 0)
+        if (statesBehind == 0)
         {
-            // std::cout << "send" << state.id << std::endl;
-            sendto(udpSocket, &state, sizeof(state), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+            state.players[0].action = state.input.action;
         }
         else
         {
-            state.statesBehind--;
+            state.players[0].action = records[state.id % N_RECORDS].players[0].action;
         }
-        State serverState;
-        int recvLength = recv(udpSocket, &serverState, sizeof(serverState), 0);
+        records[state.id % N_RECORDS] = state;
+
+        // car
+        // acceleration
+        char buffer[84];
+        if (statesBehind == 0)
+        {
+            Player &player = state.players[0];
+            ObjectState &carState = player.carState;
+            Action &action = player.action;
+            std::memcpy(buffer, &state.id, 4);
+            std::memcpy(buffer + 4, carState.position.data(), 12);
+            std::memcpy(buffer + 16, carState.velocity.data(), 12);
+            std::memcpy(buffer + 28, carState.orientation.data(), 12);
+            std::memcpy(buffer + 40, &action.steering, 4);
+            std::memcpy(buffer + 44, &action.throttle, 4);
+            sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+        }
+        else
+        {
+            statesBehind--;
+        }
+
+        int recvLength = recv(udpSocket, buffer, sizeof(buffer), 0);
         if (recvLength > 0)
         {
-            // std::cout << "receive" << serverState.id << std::endl;
-            size_t recordsIndex = serverState.id % N_RECORDS;
-            for (int i = 0; i < state.players.size(); i++)
-            {
-                if (i != state.player)
-                {
-                    records[recordsIndex].players[i] = serverState.players[i];
-                }
-            }
-            // if ((records[serverState.id % N_RECORDS].ball.objectState.position - serverState.ball.objectState.position).norm() > 0.001)
-            // {
-            // std::cout << "correction" << std::endl;
-            records[recordsIndex].ball = serverState.ball;
-            records[recordsIndex].statesBehind = state.id - serverState.id;
-            state = records[recordsIndex];
-            // std::cout << "new" << state.id << std::endl;
+            uint32_t serverId;
+            Player &player = state.players[1];
+            ObjectState &carState = player.carState;
+            Action &action = player.action;
+            ObjectState &ballState = state.ball.objectState;
+            std::memcpy(&serverId, buffer, sizeof(uint32_t));
+            std::memcpy(carState.position.data(), buffer + 4, 12);
+            std::memcpy(carState.velocity.data(), buffer + 16, 12);
+            std::memcpy(carState.orientation.data(), buffer + 28, 12);
+            std::memcpy(&action.steering, buffer + 40, sizeof(float));
+            std::memcpy(&action.throttle, buffer + 44, sizeof(float));
+            std::memcpy(ballState.position.data(), buffer + 48, 12);
+            std::memcpy(ballState.velocity.data(), buffer + 60, 12);
+            std::memcpy(ballState.orientation.data(), buffer + 72, 12);
+            state.players[0] = records[serverId % N_RECORDS].players[0];
+            statesBehind = state.id - serverId;
+            state.id = serverId;
+            records[state.id % N_RECORDS] = state;
+        }
 
-            // }
-        }
-        if (state.statesBehind > 0)
-        {
-            state.players[state.player].action = records[state.id % N_RECORDS].players[state.player].action;
-        }
         // // car
         // acceleration
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
@@ -299,13 +310,15 @@ void physics(State &state)
             carState.position += carState.velocity * PERIOD;
         state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
 
-        float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-        if (state.statesBehind == 0 && elapsed < PERIOD)
+        if (statesBehind == 0)
         {
-            std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
+            float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
+            if (elapsed < PERIOD)
+            {
+                std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
+            }
         }
         state.id++;
-        // std::cout << "increment" << state.id << std::endl;
     }
     close(udpSocket);
 }
@@ -1643,14 +1656,14 @@ public:
                         glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        for (int i = 0; i < state.players.size(); i++)
+                        for (int i = 0; i < 2; i++)
                         {
                             ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         }
                         glm::vec3 eye, center;
                         if (state.ballCam)
                         {
-                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.player].carState.position.x(), state.players[state.player].carState.position.z());
+                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[0].carState.position.x(), state.players[0].carState.position.z());
                             Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
                             Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
                             eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
@@ -1658,8 +1671,8 @@ public:
                         }
                         else
                         {
-                            auto carPosition = glm::vec3(state.players[state.player].carState.position.x(), state.players[state.player].carState.position.y(), state.players[state.player].carState.position.z());
-                            eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[state.player].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
+                            auto carPosition = glm::vec3(state.players[0].carState.position.x(), state.players[0].carState.position.y(), state.players[0].carState.position.z());
+                            eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[0].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
                             center = carPosition;
                         }
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
@@ -1729,7 +1742,7 @@ public:
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, indicesOffsets[0], 0, 0);
 
-                        for (int i = 0; i < state.players.size(); i++)
+                        for (int i = 0; i < 2; i++)
                         {
                             index = 2 + i;
                             vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
@@ -1848,7 +1861,6 @@ int main()
 {
     State state{
         .id = 0,
-        .statesBehind = 0,
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
                                   .velocity = {0.0f, 0.0f, 0.0f},
                                   .orientation = {0.0f, 0.0f, 0.0f}},
@@ -1867,7 +1879,7 @@ int main()
                                         .velocity = {0.0f, 0.0f, 0.0f},
                                         .orientation = {0.0f, 0.0f, 0.0f}},
                            .action = {.throttle = 0.0f, .steering = 0.0f}}},
-        .player = 0,
+        .playerId = 0,
         .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
         .ballCam = true};
     InputGraphics inputGraphics(state);

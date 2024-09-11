@@ -17,7 +17,7 @@ void main() {
     float attenuationQuadratic = 0.032;
 
     vec3 color3d;
-    if (index == 0) {
+    if (index > 1) {
         if (position.z > 0.5) {
             color3d = vec3(0.0, 1.0, 1.0);
         } else {
@@ -25,7 +25,7 @@ void main() {
         }
     } else if (index == 1) {
         color3d = vec3(1.0, 1.0, 1.0);
-    } else if (index == 2) {
+    } else if (index == 0) {
         if (normal.y > 0.5) {
             if (int(floor(position.z / stripe)) % 2 == 0) {
                 color3d = vec3(0.0, 0.4, 0.0);
