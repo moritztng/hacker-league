@@ -13,11 +13,11 @@
 #include "shaders/vert.spv.h"
 #include "shaders/frag.spv.h"
 
-#include <netinet/in.h> // For  programming on Linux/Unix systems (use Winsock for Windows)
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <unistd.h> // For close
+#include <unistd.h>
 
 struct ObjectState
 {
@@ -65,7 +65,6 @@ struct State
     Eigen::Vector2f goal;
     Eigen::Vector3f carSize;
     Player players[2];
-    uint8_t playerId;
     Input input;
     bool ballCam;
 };
@@ -132,15 +131,12 @@ void physics(State &state)
         char buffer[84];
         if (statesBehind == 0)
         {
-            Player &player = state.players[0];
-            ObjectState &carState = player.carState;
-            Action &action = player.action;
             std::memcpy(buffer, &state.id, 4);
-            std::memcpy(buffer + 4, carState.position.data(), 12);
-            std::memcpy(buffer + 16, carState.velocity.data(), 12);
-            std::memcpy(buffer + 28, carState.orientation.data(), 12);
-            std::memcpy(buffer + 40, &action.steering, 4);
-            std::memcpy(buffer + 44, &action.throttle, 4);
+            std::memcpy(buffer + 4, state.players[0].carState.position.data(), 12);
+            std::memcpy(buffer + 16, state.players[0].carState.velocity.data(), 12);
+            std::memcpy(buffer + 28, state.players[0].carState.orientation.data(), 12);
+            std::memcpy(buffer + 40, &state.players[0].action.steering, 4);
+            std::memcpy(buffer + 44, &state.players[0].action.throttle, 4);
             sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
         }
         else
@@ -152,26 +148,22 @@ void physics(State &state)
         if (recvLength > 0)
         {
             uint32_t serverId;
-            Player &player = state.players[1];
-            ObjectState &carState = player.carState;
-            Action &action = player.action;
-            ObjectState &ballState = state.ball.objectState;
-            std::memcpy(&serverId, buffer, sizeof(uint32_t));
-            std::memcpy(carState.position.data(), buffer + 4, 12);
-            std::memcpy(carState.velocity.data(), buffer + 16, 12);
-            std::memcpy(carState.orientation.data(), buffer + 28, 12);
-            std::memcpy(&action.steering, buffer + 40, sizeof(float));
-            std::memcpy(&action.throttle, buffer + 44, sizeof(float));
-            std::memcpy(ballState.position.data(), buffer + 48, 12);
-            std::memcpy(ballState.velocity.data(), buffer + 60, 12);
-            std::memcpy(ballState.orientation.data(), buffer + 72, 12);
+            std::memcpy(&serverId, buffer, 4);
+            std::memcpy(state.players[1].carState.position.data(), buffer + 4, 12);
+            std::memcpy(state.players[1].carState.velocity.data(), buffer + 16, 12);
+            std::memcpy(state.players[1].carState.orientation.data(), buffer + 28, 12);
+            std::memcpy(&state.players[1].action.steering, buffer + 40, 4);
+            std::memcpy(&state.players[1].action.throttle, buffer + 44, 4);
+            std::memcpy(state.ball.objectState.position.data(), buffer + 48, 12);
+            std::memcpy(state.ball.objectState.velocity.data(), buffer + 60, 12);
+            std::memcpy(state.ball.objectState.orientation.data(), buffer + 72, 12);
             state.players[0] = records[serverId % N_RECORDS].players[0];
             statesBehind = state.id - serverId;
             state.id = serverId;
             records[state.id % N_RECORDS] = state;
         }
 
-        // // car
+        // car
         // acceleration
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
         Eigen::Vector3f halfCarSize = state.carSize / 2.f;
@@ -1879,7 +1871,6 @@ int main()
                                         .velocity = {0.0f, 0.0f, 0.0f},
                                         .orientation = {0.0f, 0.0f, 0.0f}},
                            .action = {.throttle = 0.0f, .steering = 0.0f}}},
-        .playerId = 0,
         .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
         .ballCam = true};
     InputGraphics inputGraphics(state);

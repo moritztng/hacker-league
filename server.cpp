@@ -9,6 +9,7 @@
 #include <arpa/inet.h> // For htons, ntohs, inet_addr, etc.
 #include <unistd.h>
 #include <eigen3/Eigen/Dense>
+#include <queue>
 
 struct ObjectState
 {
@@ -33,8 +34,6 @@ struct Action
 {
     float throttle;
     float steering;
-    bool ballCamPressed;
-    bool close;
 };
 
 struct Player
@@ -45,52 +44,100 @@ struct Player
 
 struct Input
 {
-    Action action;
-    bool ballCamPressed;
-    bool close;
+    uint32_t id;
+    Player player;
 };
 
 struct State
 {
-    uint32_t id;
-    uint32_t statesBehind;
     Box arena;
     Sphere ball;
     Eigen::Vector2f goal;
     Eigen::Vector3f carSize;
     Player players[2];
-    uint8_t playerId;
-    Input input;
-    bool ballCam;
 };
+
+struct Client
+{
+    sockaddr_in address;
+    std::queue<Input> queue;
+    size_t playerId;
+    std::chrono::steady_clock::time_point lastUpdate;
+};
+
+State state{
+    .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
+                              .velocity = {0.0f, 0.0f, 0.0f},
+                              .orientation = {0.0f, 0.0f, 0.0f}},
+              .size = {100.0f, 20.0f, 200.0f}},
+    .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
+                             .velocity = {0.0f, 0.0f, 0.0f},
+                             .orientation = {0.0f, 0.0f, 0.0f}},
+             .radius = 1.0f},
+    .goal = {20.0, 8.0},
+    .carSize = {1.25f, 0.75f, 2.f},
+    .players = {Player{.carState = {.position = {0.0f, 0.375f, 5.0f},
+                                    .velocity = {0.0f, 0.0f, 0.0f},
+                                    .orientation = {0.0f, 0.0f, 0.0f}},
+                       .action = {.throttle = 0.0f, .steering = 0.0f}},
+                Player{.carState = {.position = {3.0f, 0.375f, 5.0f},
+                                    .velocity = {0.0f, 0.0f, 0.0f},
+                                    .orientation = {0.0f, 0.0f, 0.0f}},
+                       .action = {.throttle = 0.0f, .steering = 0.0f}}},
+};
+
+int udpSocket;
+std::vector<Client> clients;
+void serve()
+{
+    while (true)
+    {
+        char buffer[48];
+        struct sockaddr_in clientAddress;
+        socklen_t clientAddressLength = sizeof(clientAddress);
+        int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddress, &clientAddressLength);
+        if (recvLength == 0)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error receiving input");
+        }
+
+        size_t clientIndex;
+        for (clientIndex = 0; clientIndex < clients.size(); clientIndex++)
+        {
+            if (clients[clientIndex].address.sin_addr.s_addr == clientAddress.sin_addr.s_addr && clients[clientIndex].address.sin_port == clientAddress.sin_port)
+            {
+                break;
+            }
+        }
+
+        if (clientIndex == clients.size())
+        {
+            if (clients.size() < 2)
+            {
+                clients.push_back(Client{.address = clientAddress, .playerId = clients.size() == 0 ? 0 : clients[0].playerId ^ 1, .lastUpdate = std::chrono::steady_clock::now()});
+            }
+            else
+            {
+                continue;
+            }
+        }
+
+        Input input;
+        std::memcpy(&input.id, buffer, 4);
+        std::memcpy(input.player.carState.position.data(), buffer + 4, 12);
+        std::memcpy(input.player.carState.velocity.data(), buffer + 16, 12);
+        std::memcpy(input.player.carState.orientation.data(), buffer + 28, 12);
+        std::memcpy(&input.player.action.steering, buffer + 40, 4);
+        std::memcpy(&input.player.action.throttle, buffer + 44, 4);
+        clients[clientIndex].queue.push(input);
+        clients[clientIndex].lastUpdate = std::chrono::steady_clock::now();
+    }
+}
 
 int main()
 {
-    State state{
-        .id = 0,
-        .statesBehind = 0,
-        .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
-                                  .velocity = {0.0f, 0.0f, 0.0f},
-                                  .orientation = {0.0f, 0.0f, 0.0f}},
-                  .size = {100.0f, 20.0f, 200.0f}},
-        .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
-                                 .velocity = {0.0f, 0.0f, 0.0f},
-                                 .orientation = {0.0f, 0.0f, 0.0f}},
-                 .radius = 1.0f},
-        .goal = {20.0, 8.0},
-        .carSize = {1.25f, 0.75f, 2.f},
-        .players = {Player{.carState = {.position = {0.0f, 0.375f, 5.0f},
-                                        .velocity = {0.0f, 0.0f, 0.0f},
-                                        .orientation = {0.0f, 0.0f, 0.0f}},
-                           .action = {.throttle = 0.0f, .steering = 0.0f}},
-                    Player{.carState = {.position = {3.0f, 0.375f, 5.0f},
-                                        .velocity = {0.0f, 0.0f, 0.0f},
-                                        .orientation = {0.0f, 0.0f, 0.0f}},
-                           .action = {.throttle = 0.0f, .steering = 0.0f}}},
-        .playerId = 0,
-        .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
-        .ballCam = true};
-    int udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (udpSocket < 0)
     {
         throw std::runtime_error("Failed to create UDP socket!");
@@ -107,53 +154,61 @@ int main()
         throw std::runtime_error("Failed to bind UDP socket!");
     }
 
+    std::thread physicsThread(&serve);
+
+    constexpr uint FREQUENCY = 60;
+    constexpr float PERIOD = 1.f / FREQUENCY;
+    constexpr float MAX_ACCELERATION = 30;
+    constexpr float CAR_FRICTION = 10;
+    constexpr float BALL_FRICTION = 5;
+    constexpr float TURN_RADIUS_MIN = 0.5;
+    constexpr float TURN_RADIUS_RATE = 0.5;
+    constexpr float MAX_SPEED = 50;
+    constexpr float GRAVITY = 3;
+    constexpr float BALL_RESTITUTION = 0.6;
+    constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
+    constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
+    constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
+    constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
     while (true)
     {
-        State clientState;
-        struct sockaddr clientAddress;
-        socklen_t clientAddressLength;
-        char buffer[84];
-        int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, &clientAddress, &clientAddressLength);
-        if (recvLength == 0)
-        {
-            close(udpSocket);
-            throw std::runtime_error("error reading");
-        }
-
-        std::memcpy(&state.id, buffer, sizeof(uint32_t));
-        std::memcpy(state.players[0].carState.position.data(), buffer + 4, 12);
-        std::memcpy(state.players[0].carState.velocity.data(), buffer + 16, 12);
-        std::memcpy(state.players[0].carState.orientation.data(), buffer + 28, 12);
-        std::memcpy(&state.players[0].action.steering, buffer + 40, sizeof(float));
-        std::memcpy(&state.players[0].action.throttle, buffer + 44, sizeof(float));
-
-        std::memcpy(buffer, &state.id, sizeof(uint32_t));
-        std::memcpy(buffer + 4, state.players[1].carState.position.data(), 12);
-        std::memcpy(buffer + 16, state.players[1].carState.velocity.data(), 12);
-        std::memcpy(buffer + 28, state.players[1].carState.orientation.data(), 12);
-        std::memcpy(buffer + 40, &state.players[1].action.steering, sizeof(float));
-        std::memcpy(buffer + 44, &state.players[1].action.throttle, sizeof(float));
-        std::memcpy(buffer + 48, state.ball.objectState.position.data(), 12);
-        std::memcpy(buffer + 60, state.ball.objectState.velocity.data(), 12);
-        std::memcpy(buffer + 72, state.ball.objectState.orientation.data(), 12);
-        sendto(udpSocket, buffer, sizeof(buffer), 0, &clientAddress, clientAddressLength);
-
-        constexpr uint FREQUENCY = 60;
-        constexpr float PERIOD = 1.f / FREQUENCY;
-        constexpr float MAX_ACCELERATION = 30;
-        constexpr float CAR_FRICTION = 10;
-        constexpr float BALL_FRICTION = 5;
-        constexpr float TURN_RADIUS_MIN = 0.5;
-        constexpr float TURN_RADIUS_RATE = 0.5;
-        constexpr float MAX_SPEED = 50;
-        constexpr float GRAVITY = 3;
-        constexpr float BALL_RESTITUTION = 0.6;
-        constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
-        constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
-        constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
-        constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
+        auto start = std::chrono::high_resolution_clock::now();
         // car
         // acceleration
+        clients.erase(std::remove_if(clients.begin(), clients.end(),
+                                     [](const Client &client)
+                                     {
+                                         return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - client.lastUpdate).count() > 5;
+                                     }),
+                      clients.end());
+        
+        std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
+        for (auto &[address, queue, playerId, _] : clients)
+        {
+            if (!queue.empty())
+            {
+                Input &input = queue.front();
+                state.players[playerId] = input.player;
+                clientPlayerInputIds.push_back({&address, playerId, input.id});
+                queue.pop();
+            }
+        }
+        for (const auto &[address, playerId, inputId] : clientPlayerInputIds)
+        {
+            const size_t otherPlayer = playerId ^ 1;
+            char buffer[84];
+            std::memcpy(buffer, &inputId, 4);
+            std::memcpy(buffer + 4, state.players[otherPlayer].carState.position.data(), 12);
+            std::memcpy(buffer + 16, state.players[otherPlayer].carState.velocity.data(), 12);
+            std::memcpy(buffer + 28, state.players[otherPlayer].carState.orientation.data(), 12);
+            std::memcpy(buffer + 40, &state.players[otherPlayer].action.steering, 4);
+            std::memcpy(buffer + 44, &state.players[otherPlayer].action.throttle, 4);
+            std::memcpy(buffer + 48, state.ball.objectState.position.data(), 12);
+            std::memcpy(buffer + 60, state.ball.objectState.velocity.data(), 12);
+            std::memcpy(buffer + 72, state.ball.objectState.orientation.data(), 12);
+            sendto(udpSocket, buffer, sizeof(buffer), 0, (sockaddr *)address, sizeof(sockaddr));
+        }
+
         Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
         Eigen::Vector3f halfCarSize = state.carSize / 2.f;
         std::vector<Eigen::Vector2f> localCorners = {
@@ -291,9 +346,12 @@ int main()
             carState.position += carState.velocity * PERIOD;
         state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
 
-        state.id++;
+        float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
+        if (elapsed < PERIOD)
+        {
+            std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
+        }
     }
-
     close(udpSocket);
     return EXIT_SUCCESS;
 }
