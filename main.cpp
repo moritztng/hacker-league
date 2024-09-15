@@ -19,36 +19,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-struct ObjectState
-{
-    Eigen::Vector3f position;
-    Eigen::Vector3f velocity;
-    Eigen::Vector3f orientation;
-};
-
-struct Sphere
-{
-    ObjectState objectState;
-    float radius;
-};
-
-struct Box
-{
-    ObjectState objectState;
-    Eigen::Vector3f size;
-};
-
-struct Action
-{
-    float throttle;
-    float steering;
-};
-
-struct Player
-{
-    ObjectState carState;
-    Action action;
-};
+#include "common.h"
 
 struct Input
 {
@@ -59,260 +30,122 @@ struct Input
 
 struct State
 {
-    uint32_t id;
     Box arena;
-    Sphere ball;
     Eigen::Vector2f goal;
+    Sphere ball;
     Eigen::Vector3f carSize;
-    Player players[2];
+    std::vector<Player> players;
     Input input;
-    bool ballCam;
 };
 
 // TODO: lots of low hanging fruit to make it more efficient, sync with graphics
-void physics(State &state)
+void physics(State &state, std::optional<sockaddr_in> &serverAddress)
 {
+    bool multiplayer = serverAddress.has_value();
+
+    int udpSocket;
+    if (multiplayer)
+    {
+        udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udpSocket < 0)
+        {
+            throw std::runtime_error("error creating udp socket");
+        }
+        int flags = fcntl(udpSocket, F_GETFL, 0);
+        if (flags == -1)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error getting socket flags");
+        }
+        if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) == -1)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error setting O_NONBLOCK flag");
+        }
+    }
+
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
-    constexpr float MAX_ACCELERATION = 30;
-    constexpr float CAR_FRICTION = 10;
-    constexpr float BALL_FRICTION = 5;
-    constexpr float TURN_RADIUS_MIN = 0.5;
-    constexpr float TURN_RADIUS_RATE = 0.5;
-    constexpr float MAX_SPEED = 50;
-    constexpr float GRAVITY = 3;
-    constexpr float BALL_RESTITUTION = 0.6;
-    constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
-    constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
-    constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
-    constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
+    constexpr size_t N_RECORDS = 5 * FREQUENCY;
 
-    constexpr size_t N_RECORDS = 60;
-
-    int udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udpSocket < 0)
-    {
-        throw std::runtime_error("Failed to create UDP socket!");
-    }
-    int flags = fcntl(udpSocket, F_GETFL, 0);
-    if (flags == -1)
-    {
-        close(udpSocket);
-        throw std::runtime_error("Failed to get socket flags");
-    }
-    if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) == -1)
-    {
-        close(udpSocket);
-        throw std::runtime_error("Failed to set O_NONBLOCK");
-    }
-
-    struct sockaddr_in serverAddress;
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(12345);
-    serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
-
+    Sphere ball = state.ball;
+    std::vector<Player> players = state.players;
+    Player records[N_RECORDS];
+    uint32_t stateId = 0;
     uint32_t statesBehind = 0;
-    State records[N_RECORDS];
     while (!state.input.close)
     {
         auto start = std::chrono::high_resolution_clock::now();
+        
         if (statesBehind == 0)
         {
-            state.players[0].action = state.input.action;
-        }
-        else
-        {
-            state.players[0].action = records[state.id % N_RECORDS].players[0].action;
-        }
-        records[state.id % N_RECORDS] = state;
-
-        // car
-        // acceleration
-        char buffer[84];
-        if (statesBehind == 0)
-        {
-            std::memcpy(buffer, &state.id, 4);
-            std::memcpy(buffer + 4, state.players[0].carState.position.data(), 12);
-            std::memcpy(buffer + 16, state.players[0].carState.velocity.data(), 12);
-            std::memcpy(buffer + 28, state.players[0].carState.orientation.data(), 12);
-            std::memcpy(buffer + 40, &state.players[0].action.steering, 4);
-            std::memcpy(buffer + 44, &state.players[0].action.throttle, 4);
-            sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
-        }
-        else
-        {
-            statesBehind--;
-        }
-
-        int recvLength = recv(udpSocket, buffer, sizeof(buffer), 0);
-        if (recvLength > 0)
-        {
-            uint32_t serverId;
-            std::memcpy(&serverId, buffer, 4);
-            std::memcpy(state.players[1].carState.position.data(), buffer + 4, 12);
-            std::memcpy(state.players[1].carState.velocity.data(), buffer + 16, 12);
-            std::memcpy(state.players[1].carState.orientation.data(), buffer + 28, 12);
-            std::memcpy(&state.players[1].action.steering, buffer + 40, 4);
-            std::memcpy(&state.players[1].action.throttle, buffer + 44, 4);
-            std::memcpy(state.ball.objectState.position.data(), buffer + 48, 12);
-            std::memcpy(state.ball.objectState.velocity.data(), buffer + 60, 12);
-            std::memcpy(state.ball.objectState.orientation.data(), buffer + 72, 12);
-            state.players[0] = records[serverId % N_RECORDS].players[0];
-            statesBehind = state.id - serverId;
-            state.id = serverId;
-            records[state.id % N_RECORDS] = state;
-        }
-
-        // car
-        // acceleration
-        Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
-        Eigen::Vector3f halfCarSize = state.carSize / 2.f;
-        std::vector<Eigen::Vector2f> localCorners = {
-            {-halfCarSize.x(), -halfCarSize.z()},
-            {halfCarSize.x(), -halfCarSize.z()},
-            {-halfCarSize.x(), halfCarSize.z()},
-            {halfCarSize.x(), halfCarSize.z()}};
-        for (auto &[carState, action] : state.players)
-        {
-            Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
-            carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
-            float speed = carState.velocity.norm();
-            if (speed > DELTA_CAR_FRICTION)
+            players[0].action = state.input.action;
+            if (multiplayer)
             {
-                carState.velocity -= carState.velocity.normalized() * DELTA_CAR_FRICTION;
-                speed -= DELTA_CAR_FRICTION;
-                if (speed > MAX_SPEED)
+                records[stateId % N_RECORDS] = players[0];
+            }
+        }
+        else
+        {
+            players[0] = records[stateId % N_RECORDS];
+        }
+
+        if (multiplayer)
+        {
+            char buffer[84];
+            if (statesBehind == 0)
+            {
+                std::memcpy(buffer, &stateId, 4);
+                std::memcpy(buffer + 4, players[0].carState.position.data(), 12);
+                std::memcpy(buffer + 16, players[0].carState.velocity.data(), 12);
+                std::memcpy(buffer + 28, players[0].carState.orientation.data(), 12);
+                std::memcpy(buffer + 40, &players[0].action.steering, 4);
+                std::memcpy(buffer + 44, &players[0].action.throttle, 4);
+                sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+
+                int recvLength = recv(udpSocket, buffer, sizeof(buffer), 0);
+                if (recvLength > 0)
                 {
-                    carState.velocity *= MAX_SPEED / speed;
-                    speed = MAX_SPEED;
+                    uint32_t serverId;
+                    std::memcpy(&serverId, buffer, 4);
+                    std::memcpy(players[1].carState.position.data(), buffer + 4, 12);
+                    std::memcpy(players[1].carState.velocity.data(), buffer + 16, 12);
+                    std::memcpy(players[1].carState.orientation.data(), buffer + 28, 12);
+                    std::memcpy(&players[1].action.steering, buffer + 40, 4);
+                    std::memcpy(&players[1].action.throttle, buffer + 44, 4);
+                    std::memcpy(ball.objectState.position.data(), buffer + 48, 12);
+                    std::memcpy(ball.objectState.velocity.data(), buffer + 60, 12);
+                    std::memcpy(ball.objectState.orientation.data(), buffer + 72, 12);
+                    players[0] = records[serverId % N_RECORDS];
+                    statesBehind = stateId - serverId;
+                    stateId = serverId;
                 }
             }
             else
             {
-                carState.velocity.setZero();
-                speed = 0;
-            }
-            // steering
-            int backwards = carState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-            carState.orientation.y() -= backwards * action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
-            carState.velocity = backwards * Eigen::Vector3f(std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())) * speed;
-            // wall collision
-            // TODO: make more efficient
-            for (const auto &localCorner : localCorners)
-            {
-                Eigen::Vector2f globalCorner = Eigen::Rotation2Df(carState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(carState.position.x(), carState.position.z());
-                float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
-                float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
-                if (xDistance > 0)
-                {
-                    int leftRight = globalCorner.x() > 0 ? 1 : -1;
-                    carState.position.x() -= leftRight * (xDistance + 0.001f);
-                    if (leftRight * carState.velocity.x() > 0)
-                    {
-                        carState.velocity.x() = 0;
-                    }
-                }
-                if (zDistance > 0)
-                {
-                    int backFront = globalCorner.y() > 0 ? 1 : -1;
-                    carState.position.z() -= backFront * (zDistance + 0.001f);
-                    if (backFront * carState.velocity.z() > 0)
-                    {
-                        carState.velocity.z() = 0;
-                    }
-                }
-            }
-
-            // car ball collision
-            Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(carState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
-            Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - carState.position);
-            Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
-            float distance = difference.norm();
-            if (distance < state.ball.radius)
-            {
-                state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
-                Eigen::Vector3f collisionNormal = (state.ball.objectState.position - carState.position).normalized();
-                float velocityAlongNormal = (state.ball.objectState.velocity - carState.velocity).dot(collisionNormal);
-                if (velocityAlongNormal < 0)
-                {
-                    state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
-                }
-            }
-        }
-        // ball
-        // vertical
-        if (state.ball.objectState.position.y() < state.ball.radius)
-        {
-            state.ball.objectState.position.y() = state.ball.radius;
-            state.ball.objectState.velocity.y() *= state.ball.objectState.velocity.y() < -0.1 ? -BALL_RESTITUTION : 0;
-        }
-        else if (state.ball.objectState.position.y() > state.ball.radius)
-        {
-            state.ball.objectState.velocity.y() -= DELTA_GRAVITY;
-            if (state.ball.objectState.position.y() > state.arena.size.y() - state.ball.radius)
-            {
-                state.ball.objectState.position.y() = state.arena.size.y() - state.ball.radius;
-                state.ball.objectState.velocity.y() *= -1;
-            }
-        }
-        // friction
-        if (state.ball.objectState.position.y() == state.ball.radius)
-        {
-            Eigen::Vector3f &velocity = state.ball.objectState.velocity;
-            float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
-            velocity.x() *= scale;
-            velocity.z() *= scale;
-        }
-        // side walls
-        if (halfArenaSize.x() - abs(state.ball.objectState.position.x()) < state.ball.radius)
-        {
-            state.ball.objectState.position.x() = (state.ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - state.ball.radius);
-            state.ball.objectState.velocity.x() *= -1;
-        }
-        // front + back wall
-        if (halfArenaSize.z() - abs(state.ball.objectState.position.z()) < state.ball.radius && (state.ball.objectState.position.y() > state.goal.y() || abs(state.ball.objectState.position.x()) > state.goal.x() / 2))
-        {
-            state.ball.objectState.position.z() = (state.ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - state.ball.radius);
-            state.ball.objectState.velocity.z() *= -1;
-        }
-        // goal
-        if (abs(state.ball.objectState.position.z()) > state.arena.size.z() / 2 + state.ball.radius)
-        {
-            state.ball.objectState.position.setZero();
-            state.ball.objectState.velocity.setZero();
-        }
-        // goal posts + crossbar
-        for (int i = 0; i < 2; ++i)
-        {
-            if ((i == 0) ? state.ball.objectState.position.y() < state.goal.y() - state.ball.radius : abs(state.ball.objectState.position.x()) < state.goal.x() / 2 - state.ball.radius)
-            {
-                Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(state.goal.x() / 2 - abs(state.ball.objectState.position.x()), 0.f, state.arena.size.z() / 2 - abs(state.ball.objectState.position.z())) : Eigen::Vector3f(0.f, state.goal.y() - state.ball.objectState.position.y(), state.arena.size.z() / 2 - abs(state.ball.objectState.position.z()));
-                float distance = difference.norm();
-                if (distance < state.ball.radius)
-                {
-                    Eigen::Vector3f adjustedDifference = difference.cwiseProduct(state.ball.objectState.position.cwiseSign());
-                    state.ball.objectState.position -= adjustedDifference * (state.ball.radius / distance - 1);
-                    Eigen::Vector3f normal = adjustedDifference / distance;
-                    state.ball.objectState.velocity -= 2 * state.ball.objectState.velocity.dot(normal) * normal;
-                }
+                statesBehind--;
             }
         }
 
-        for (auto &[carState, _] : state.players)
-            carState.position += carState.velocity * PERIOD;
-        state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
+        physicsStep(state.arena.size, state.goal, ball, state.carSize, players);
 
         if (statesBehind == 0)
         {
+            state.ball = ball;
+            state.players = players;
+
             float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
             if (elapsed < PERIOD)
             {
                 std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
             }
         }
-        state.id++;
+        stateId++;
     }
-    close(udpSocket);
+    if (multiplayer)
+    {
+        close(udpSocket);
+    }
 }
 
 constexpr uint32_t WIDTH = 1280;
@@ -1571,6 +1404,7 @@ public:
         // main loop
         {
             uint32_t currentFrame = 0;
+            bool ballCam = true;
             std::optional<float> steeringDrift;
             while (!glfwWindowShouldClose(window))
             {
@@ -1598,7 +1432,7 @@ public:
                         }
                         if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.input.ballCamPressed)
                         {
-                            state.ballCam = !state.ballCam;
+                            ballCam = !ballCam;
                             state.input.ballCamPressed = true;
                         }
                         else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
@@ -1648,12 +1482,12 @@ public:
                         glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
                         ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        for (int i = 0; i < 2; i++)
+                        for (int i = 0; i < state.players.size(); i++)
                         {
                             ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         }
                         glm::vec3 eye, center;
-                        if (state.ballCam)
+                        if (ballCam)
                         {
                             Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[0].carState.position.x(), state.players[0].carState.position.z());
                             Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
@@ -1734,7 +1568,7 @@ public:
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, indicesOffsets[0], 0, 0);
 
-                        for (int i = 0; i < 2; i++)
+                        for (int i = 0; i < state.players.size(); i++)
                         {
                             index = 2 + i;
                             vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
@@ -1849,36 +1683,53 @@ public:
     }
 };
 
-int main()
+int main(int argc, char *argv[])
 {
-    State state{
-        .id = 0,
+    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " <IP Address> <Port>\n\n"
+              << std::endl;
+
+    State state = {
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
                                   .velocity = {0.0f, 0.0f, 0.0f},
                                   .orientation = {0.0f, 0.0f, 0.0f}},
                   .size = {100.0f, 20.0f, 200.0f}},
+        .goal = {20.0, 8.0},
         .ball = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
                                  .velocity = {0.0f, 0.0f, 0.0f},
                                  .orientation = {0.0f, 0.0f, 0.0f}},
                  .radius = 1.0f},
-        .goal = {20.0, 8.0},
         .carSize = {1.25f, 0.75f, 2.f},
-        .players = {Player{.carState = {.position = {0.0f, 0.375f, 5.0f},
-                                        .velocity = {0.0f, 0.0f, 0.0f},
-                                        .orientation = {0.0f, 0.0f, 0.0f}},
-                           .action = {.throttle = 0.0f, .steering = 0.0f}},
-                    Player{.carState = {.position = {3.0f, 0.375f, 5.0f},
-                                        .velocity = {0.0f, 0.0f, 0.0f},
-                                        .orientation = {0.0f, 0.0f, 0.0f}},
-                           .action = {.throttle = 0.0f, .steering = 0.0f}}},
+        .players = {{.carState = {.position = {0.0f, 0.375f, 5.0f},
+                                  .velocity = {0.0f, 0.0f, 0.0f},
+                                  .orientation = {0.0f, 0.0f, 0.0f}},
+                     .action = {.throttle = 0.0f, .steering = 0.0f}}},
         .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
-        .ballCam = true};
+    };
+    std::optional<sockaddr_in> serverAddress;
+
+    if (argc == 3)
+    {
+        serverAddress = sockaddr_in{};
+        serverAddress->sin_family = AF_INET;
+        serverAddress->sin_addr.s_addr = inet_addr(argv[1]);
+        serverAddress->sin_port = htons(std::stoi(argv[2]));
+        state.players.push_back({.carState = {.position = {3.0f, 0.375f, 5.0f},
+                                        .velocity = {0.0f, 0.0f, 0.0f},
+                                        .orientation = {0.0f, 0.0f, 0.0f}},
+                           .action = {.throttle = 0.0f, .steering = 0.0f}});
+    }
+    else if (argc != 1)
+    {
+        std::cerr << "error you have to pass 0 or 2 arguments" << std::endl;
+        return EXIT_FAILURE;
+    }
+
     InputGraphics inputGraphics(state);
 
     try
     {
         std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
-        std::thread physicsThread(&physics, std::ref(state));
+        std::thread physicsThread(&physics, std::ref(state), std::ref(serverAddress));
         inputGraphicsThread.join();
         physicsThread.join();
     }
