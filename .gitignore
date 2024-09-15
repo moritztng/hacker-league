@@ -3,4 +3,5 @@
 *.spv.h
 glslc
 hacker-league
+server
 gamepad.txt
