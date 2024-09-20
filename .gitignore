@@ -1,6 +1,7 @@
 .vscode
 *.spv
 *.spv.h
+stb*
 glslc
 hacker-league
 server

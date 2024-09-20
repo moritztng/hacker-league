@@ -9,15 +9,19 @@ debug: hacker-league server
 release: CXXFLAGS += -DNDEBUG
 release: hacker-league server
 
-hacker-league: main.cpp shaders/vert.spv.h shaders/frag.spv.h 
+hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h
 	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread
 
-shaders/%.spv.h: shaders/shader.%
-	shaders/glslc $< -o ./shaders/$*.spv
-	xxd -i ./shaders/$*.spv > $@
+shaders/world/%.spv.h: shaders/world/shader.%
+	shaders/glslc $< -o ./shaders/world/$*.spv
+	xxd -i ./shaders/world/$*.spv > $@
 
-server: server.cpp 
+shaders/hud/%.spv.h: shaders/hud/shader.%
+	shaders/glslc $< -o ./shaders/hud/$*.spv
+	xxd -i ./shaders/hud/$*.spv > $@
+
+server: server.cpp common.h
 	g++ $(CXXFLAGS) -o server server.cpp -lpthread
 
 clean:
-	rm -f hacker-league server shaders/*spv*
+	rm -f hacker-league server shaders/*/*spv*
