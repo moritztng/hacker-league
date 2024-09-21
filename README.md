@@ -18,7 +18,6 @@ sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-
 curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
 chmod +x ./shaders/glslc
 make debug
-curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
 ```
 ## Community
 - Discord Server: https://discord.gg/BbNH27st
