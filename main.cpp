@@ -1760,7 +1760,7 @@ public:
 
             // hud vertex buffer
             {
-                VkDeviceSize bufferSize = sizeof(HudVertex) * 11 * 6;
+                VkDeviceSize bufferSize = sizeof(HudVertex) * 13 * 6;
 
                 createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, hudVertexBuffer, hudVertexBufferMemory);
 
@@ -1921,12 +1921,29 @@ public:
                     {
                         const uint64_t countdown = state.transitionCountdown > 0 ? state.transitionCountdown : state.countdown;
                         std::ostringstream oss;
-                        oss << (uint32_t)state.players[0].score << " " << countdown / 60 << ":" << std::setw(2) << std::setfill('0') << countdown % 60 << " " << (uint32_t)state.players[1].score << std::endl;
+                        oss << (uint32_t)state.players[0].score << "  " << countdown / 60 << ":" << std::setw(2) << std::setfill('0') << countdown % 60 << "  " << (uint32_t)state.players[1].score;
                         const std::string newText = oss.str();
                         if (newText != text)
                         {
                             text = newText;
+
+                            float textWidth = 0;
+                            for (const char &c : text)
+                            {         
+                                textWidth += CHAR_INFO[c - FIRST_CHAR].xadvance;
+                            }
+
+                            constexpr float BOTTOM_PADDING = 20;
+                            const float textWidthPadding = textWidth + 50;
+                            float x = -2.f * textWidthPadding / 2 / swapChainExtent.width, y = -1, height = 2 * (BOTTOM_PADDING + FONT_ASCENT) / swapChainExtent.height, width = 2.f * textWidthPadding / swapChainExtent.width;
                             std::vector<HudVertex> vertices;
+                            vertices.insert(vertices.begin(), {{{x, y + height}, {0, 0}},
+                                                               {{x, y}, {0, 0}},
+                                                               {{x + width, y}, {0, 0}},
+                                                               {{x, y + height}, {0, 0}},
+                                                               {{x + width, y}, {0, 0}},
+                                                               {{x + width, y + height}, {0, 0}}});
+
                             float cursor = 0;
                             for (const char &c : text)
                             {
@@ -1936,15 +1953,15 @@ public:
                                 const auto &x0 = CHAR_INFO[i].x0;
                                 const auto &x1 = CHAR_INFO[i].x1;
 
-                                float width = 2.f * (x1 - x0) / swapChainExtent.width;
-                                float height = 2.f * (y1 - y0) / swapChainExtent.height;
-                                float y = 2.f * CHAR_INFO[i].yoff / swapChainExtent.height - 0.75;
-                                float x = 2.f * (cursor + CHAR_INFO[i].xoff - 50) / swapChainExtent.width;
+                                const float width = 2.f * (x1 - x0) / swapChainExtent.width;
+                                const float height = 2.f * (y1 - y0) / swapChainExtent.height;
+                                const float y = 2.f * (FONT_ASCENT + CHAR_INFO[i].yoff) / swapChainExtent.height - 1;
+                                const float x = 2.f * (cursor + CHAR_INFO[i].xoff - textWidth / 2) / swapChainExtent.width;
 
-                                float y0Normalized = (float)y0 / ATLAS_HEIGHT;
-                                float y1Normalized = (float)y1 / ATLAS_HEIGHT;
-                                float x0Normalized = (float)x0 / ATLAS_WIDTH;
-                                float x1Normalized = (float)x1 / ATLAS_WIDTH;
+                                const float y0Normalized = (float)y0 / ATLAS_HEIGHT;
+                                const float y1Normalized = (float)y1 / ATLAS_HEIGHT;
+                                const float x0Normalized = (float)x0 / ATLAS_WIDTH;
+                                const float x1Normalized = (float)x1 / ATLAS_WIDTH;
 
                                 vertices.insert(vertices.end(), {{{x, y + height}, {x0Normalized, y1Normalized}},
                                                                  {{x, y}, {x0Normalized, y0Normalized}},
@@ -2043,7 +2060,7 @@ public:
                             0,
                             nullptr);
 
-                        for (int i = 0; i < text.size(); i++)
+                        for (int i = 0; i < text.size() + 1; i++)
                         {
                             vkCmdDraw(commandBuffer, 6, 1, i * 6, 0);
                         }

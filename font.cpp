@@ -17,11 +17,11 @@ int main() {
     constexpr const char* ttfFile = "DejaVuSans.ttf";
     constexpr const char* pngFile = "font.png";
     constexpr const char* headerFile = "font.h";
-    constexpr int atlasWidth = 512;
-    constexpr int atlasHeight = 512;
-    constexpr float fontSize = 32.0f;
+    constexpr int atlasWidth = 256;
+    constexpr int atlasHeight = 256;
+    constexpr float fontSize = 64;
     constexpr int firstChar = 32;
-    constexpr int numChars = 95;
+    constexpr int numChars = 27;
 
     std::ifstream fontFile(ttfFile, std::ios::binary | std::ios::ate);
     if (!fontFile) {
