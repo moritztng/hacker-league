@@ -1929,7 +1929,7 @@ public:
 
                             float textWidth = 0;
                             for (const char &c : text)
-                            {         
+                            {
                                 textWidth += CHAR_INFO[c - FIRST_CHAR].xadvance;
                             }
 
@@ -1975,6 +1975,8 @@ public:
                             memcpy(hudMappedData, vertices.data(), (size_t)sizeof(vertices[0]) * vertices.size());
                         }
                     }
+                    else
+                        text = "";
 
                     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
                     // record command buffer
@@ -2060,9 +2062,12 @@ public:
                             0,
                             nullptr);
 
-                        for (int i = 0; i < text.size() + 1; i++)
+                        if (!text.empty())
                         {
-                            vkCmdDraw(commandBuffer, 6, 1, i * 6, 0);
+                            for (int i = 0; i < text.size() + 1; i++)
+                            {
+                                vkCmdDraw(commandBuffer, 6, 1, i * 6, 0);
+                            }
                         }
 
                         vkCmdEndRenderPass(commandBuffer);
