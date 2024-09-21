@@ -9,10 +9,10 @@ debug: hacker-league server
 release: CXXFLAGS += -DNDEBUG
 release: hacker-league server
 
-hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font-atlas
+hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png
 	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread
 
-font-atlas: font
+font.h font.png: font
 	./font
 
 font: font.cpp
@@ -31,4 +31,4 @@ server: server.cpp common.h
 
 clean:
 	rm -f hacker-league font font.h font.png server shaders/*/*spv*
-	
+
