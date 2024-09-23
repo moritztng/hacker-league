@@ -6,6 +6,7 @@
 #include <chrono>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <queue>
 
@@ -80,11 +81,71 @@ void receive(int &udpSocket, std::vector<Client> &clients)
     }
 }
 
+void publishServerAddress(std::string address, uint16_t port)
+{
+    constexpr int SERVER_PORT = 8080;
+    constexpr uint16_t PERIOD = 30;
+    const std::string addressesServerAddress = "hacker-league.molyz.app";
+
+    const struct hostent *hostEntry = gethostbyname(addressesServerAddress.c_str());
+    if (hostEntry == nullptr)
+    {
+        throw std::runtime_error("error resolving hostname");
+    }
+
+    struct sockaddr_in serverAddress
+    {
+    };
+    serverAddress.sin_family = AF_INET;
+    std::memcpy(&serverAddress.sin_addr.s_addr, hostEntry->h_addr, hostEntry->h_length);
+    serverAddress.sin_port = htons(SERVER_PORT);
+
+    const std::string body = address + " " + std::to_string(port);
+    std::string httpRequest = "POST /publish HTTP/1.1\r\n"
+                              "Host: " +
+                              addressesServerAddress + "\r\n"
+                                                       "Content-Type: text/plain\r\n"
+                                                       "Content-Length: " +
+                              std::to_string(body.size()) + "\r\n\r\n" +
+                              body;
+
+    while (true)
+    {
+        int tcpSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (tcpSocket < 0)
+        {
+            throw std::runtime_error("error creating tcp socket");
+        }
+
+        if (connect(tcpSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0)
+        {
+            close(tcpSocket);
+            throw std::runtime_error("error connecting to the server");
+        }
+
+        if (send(tcpSocket, httpRequest.c_str(), httpRequest.size(), 0) < 0)
+        {
+            close(tcpSocket);
+            throw std::runtime_error("error sending message");
+        }
+
+        char buffer[4096];
+        const int bytesReceived = recv(tcpSocket, buffer, sizeof(buffer), 0);
+        if (bytesReceived < 0)
+        {
+            throw std::runtime_error("error receiving response");
+        }
+        close(tcpSocket);
+
+        std::this_thread::sleep_for(std::chrono::seconds(PERIOD));
+    }
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc != 2)
+    if (!(argc == 2 || argc == 4))
     {
-        std::cerr << "Usage: " << argv[0] << " <Port>" << std::endl;
+        std::cerr << "Usage\nLocal: " << argv[0] << " <Port>\nPublic: " << argv[0] << " <Port> <PublicAddress> <PublicPort>" << std::endl;
         return EXIT_FAILURE;
     }
 
@@ -95,7 +156,9 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    struct sockaddr_in serverAddress;
+    struct sockaddr_in serverAddress
+    {
+    };
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(std::stoi(argv[1]));
     serverAddress.sin_addr.s_addr = INADDR_ANY;
@@ -109,6 +172,11 @@ int main(int argc, char *argv[])
 
     std::vector<Client> clients;
     std::thread receiveThread(&receive, std::ref(udpSocket), std::ref(clients));
+    std::thread tcpThread;
+    if (argc == 4)
+    {
+        tcpThread = std::thread(&publishServerAddress, argv[2], std::stoi(argv[3]));
+    }
 
     Sphere ball = initialBall;
     std::vector<Player> players = initialPlayers;

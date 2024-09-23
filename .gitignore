@@ -6,3 +6,5 @@ font
 glslc
 hacker-league
 server
+*.db
+addresses_server

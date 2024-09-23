@@ -14,7 +14,7 @@ cd hacker-league
 ```bash
 git clone https://github.com/moritztng/hacker-league.git
 cd hacker-league
-sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make
+sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make libsqlite3-dev
 curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
 chmod +x ./shaders/glslc
 make debug
