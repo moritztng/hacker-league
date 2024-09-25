@@ -20,7 +20,7 @@ struct Input
 
 struct Client
 {
-    sockaddr_in address;
+    sockaddr_in6 address;
     std::queue<Input> queue;
     bool regulateQueue;
     size_t playerId;
@@ -32,7 +32,7 @@ void receive(int &udpSocket, std::vector<Client> &clients)
     while (true)
     {
         char buffer[48];
-        struct sockaddr_in clientAddress;
+        struct sockaddr_in6 clientAddress;
         socklen_t clientAddressLength = sizeof(clientAddress);
         int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddress, &clientAddressLength);
         if (recvLength == 0)
@@ -45,7 +45,7 @@ void receive(int &udpSocket, std::vector<Client> &clients)
         Client *client = nullptr;
         for (Client &c : clients)
         {
-            if (c.address.sin_addr.s_addr == clientAddress.sin_addr.s_addr && c.address.sin_port == clientAddress.sin_port)
+            if (memcmp(&c.address, &clientAddress, sizeof(clientAddress)) == 0)
             {
                 client = &c;
                 break;
@@ -59,7 +59,7 @@ void receive(int &udpSocket, std::vector<Client> &clients)
                 const uint8_t playerId = clients.size() == 0 ? 0 : clients[0].playerId ^ 1;
                 clients.push_back(Client{.address = clientAddress, .regulateQueue = true, .playerId = playerId, .lastUpdate = std::chrono::steady_clock::now()});
                 // TODO: deal with packet loss
-                sendto(udpSocket, &playerId, sizeof(playerId), 0, (sockaddr *)&clientAddress, sizeof(sockaddr));
+                sendto(udpSocket, &playerId, sizeof(playerId), 0, (sockaddr *)&clientAddress, sizeof(clientAddress));
             }
             else
             {
@@ -149,19 +149,19 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    int udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    int udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
     if (udpSocket < 0)
     {
         std::cerr << "error creating udp socket" << std::endl;
         return EXIT_FAILURE;
     }
+    int opt = 0;
+    setsockopt(udpSocket, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
 
-    struct sockaddr_in serverAddress
-    {
-    };
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(std::stoi(argv[1]));
-    serverAddress.sin_addr.s_addr = INADDR_ANY;
+    struct sockaddr_in6 serverAddress = {};
+    serverAddress.sin6_family = AF_INET6;
+    serverAddress.sin6_addr = in6addr_any;
+    serverAddress.sin6_port = htons(std::stoi(argv[1]));
 
     if (bind(udpSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0)
     {
@@ -223,7 +223,7 @@ int main(int argc, char *argv[])
                                      }),
                       clients.end());
 
-        std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
+        std::vector<std::tuple<sockaddr_in6 *, size_t, uint32_t>> clientPlayerInputIds;
         for (auto &[address, queue, regulateQueue, playerId, _] : clients)
         {
             if (queue.size() < QUEUE_MIN || queue.size() > QUEUE_MAX)
@@ -268,7 +268,7 @@ int main(int argc, char *argv[])
             std::memcpy(buffer + 92, &transitionCountdown, 8);
             std::memcpy(buffer + 100, &players[0].score, 1);
             std::memcpy(buffer + 101, &players[1].score, 1);
-            sendto(udpSocket, buffer, sizeof(buffer), 0, (sockaddr *)address, sizeof(sockaddr));
+            sendto(udpSocket, buffer, sizeof(buffer), 0, (sockaddr *)address, sizeof(*address));
         }
 
         const uint8_t scores[2] = {players[0].score, players[1].score};

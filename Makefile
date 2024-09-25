@@ -10,7 +10,7 @@ release: CXXFLAGS += -DNDEBUG
 release: hacker-league server addresses_server
 
 hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png
-	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread
+	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread -lcurl
 
 font.h font.png: font
 	./font

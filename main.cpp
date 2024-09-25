@@ -22,6 +22,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <curl/curl.h>
+#include "json.hpp"
+
 #include "common.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -50,14 +53,14 @@ struct State
 };
 
 // TODO: lots of low hanging fruit to make it more efficient, sync with graphics
-void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in> &serverAddress)
+void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in6> &serverAddress)
 {
     bool multiplayer = serverAddress.has_value();
 
     int udpSocket;
     if (multiplayer)
     {
-        udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+        udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
         if (udpSocket < 0)
         {
             throw std::runtime_error("error creating udp socket");
@@ -2189,10 +2192,15 @@ public:
     }
 };
 
+static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    ((std::string *)userp)->append((char *)contents, size * nmemb);
+    return size * nmemb;
+}
+
 int main(int argc, char *argv[])
 {
-    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " <IP Address> <Port>\n\n"
-              << std::endl;
+    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " servers or "  << argv[0] << " <IP Address> <Port>\n" << std::endl;
 
     State state = {
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
@@ -2207,19 +2215,70 @@ int main(int argc, char *argv[])
         .transitionCountdown = 0,
         .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
     };
-    std::optional<sockaddr_in> serverAddress;
+    std::optional<sockaddr_in6> serverAddress;
 
-    if (argc == 3)
+    if (argc == 2 && std::string(argv[1]) == "servers" || argc == 3)
     {
-        serverAddress = sockaddr_in{};
-        serverAddress->sin_family = AF_INET;
-        serverAddress->sin_addr.s_addr = inet_addr(argv[1]);
-        serverAddress->sin_port = htons(std::stoi(argv[2]));
+
+        std::string address, port;
+        if (argc == 3)
+        {
+            address = argv[1];
+            port = argv[2];
+        }
+        else if (argc == 2)
+        {
+            CURL *curl;
+            curl_global_init(CURL_GLOBAL_DEFAULT);
+            curl = curl_easy_init();
+            if (curl)
+            {
+                std::string response;
+                curl_easy_setopt(curl, CURLOPT_URL, "http://hacker-league.molyz.app:8080/servers");
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                CURLcode code = curl_easy_perform(curl);
+                if (code != CURLE_OK)
+                {
+                    std::cerr << "cURL error: " << curl_easy_strerror(code) << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                nlohmann::json servers = nlohmann::json::parse(response);
+
+                std::cout << "Servers (Address, Port)" << std::endl;
+                for (int i = 0; i < servers.size(); i++)
+                {
+                    std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << std::endl;
+                }
+                std::cout << "\nEnter the number of the server you want to choose: ";
+                int choice;
+                std::cin >> choice;
+
+                if (choice < 1 || choice > servers.size())
+                {
+                    std::cerr << "Invalid choice." << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                address = servers[choice - 1]["address"];
+                port = servers[choice - 1]["port"];
+
+                curl_easy_cleanup(curl);
+            }
+            curl_global_cleanup();
+        }
+
+        serverAddress = sockaddr_in6{};
+        serverAddress->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, address.c_str(), &serverAddress->sin6_addr);
+        serverAddress->sin6_port = htons(std::stoi(port));
         state.players.push_back(initialPlayers[1]);
     }
     else if (argc != 1)
     {
-        std::cerr << "error you have to pass 0 or 2 arguments" << std::endl;
+        std::cerr << "error wrong number of arguments" << std::endl;
         return EXIT_FAILURE;
     }
     std::vector<Player> initialPlayers = state.players;

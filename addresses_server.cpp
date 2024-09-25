@@ -112,7 +112,6 @@ int main()
             if (fds[i].revents & POLLIN)
             {
                 char buffer[4096] = {};
-                
                 std::string request;
                 ssize_t bytesRead = 0;
                 size_t headerSize = 0;
@@ -192,12 +191,18 @@ int main()
                     std::ostringstream responseStream;
                     responseStream << "[";
 
+                    bool firstElement = true;
                     while (sqlite3_step(stmt) == SQLITE_ROW)
                     {
                         const char *address = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
                         const char *port = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
 
-                        responseStream << "{\"address\": \"" << address << "\", \"port\": \"" << port << "\"},";
+                        if (!firstElement)
+                        {
+                            responseStream << ",";
+                        }
+                        responseStream << "{\"address\": \"" << address << "\", \"port\": \"" << port << "\"}";
+                        firstElement = false;
                     }
 
                     sqlite3_finalize(stmt);
@@ -205,11 +210,11 @@ int main()
 
                     const std::string responseBody = responseStream.str();
                     const std::string responseHeaders = "HTTP/1.1 200 OK\r\n"
-                                                  "Content-Type: application/json\r\n"
-                                                  "Content-Length: " +
-                                                  std::to_string(responseBody.size()) + "\r\n"
-                                                                                        "Connection: close\r\n"
-                                                                                        "\r\n";
+                                                        "Content-Type: application/json\r\n"
+                                                        "Content-Length: " +
+                                                        std::to_string(responseBody.size()) + "\r\n"
+                                                                                              "Connection: close\r\n"
+                                                                                              "\r\n";
                     const std::string response = responseHeaders + responseBody;
                     const ssize_t bytesWritten = send(fds[i].fd, response.c_str(), response.size(), 0);
                     if (bytesWritten < 0)

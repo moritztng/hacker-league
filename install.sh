@@ -2,7 +2,7 @@
 
 BINARY_NAME="hacker-league"
 sudo apt-get update
-sudo apt-get install -y libglfw3
+sudo apt-get install -y libglfw3 libcurl4-openssl-dev
 if ! lspci | grep -iqE 'vga.*(nvidia|radeon)'; then
     echo "Integrated graphics detected"
     sudo apt-get install -y mesa-vulkan-drivers
