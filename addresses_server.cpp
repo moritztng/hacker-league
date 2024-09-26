@@ -25,6 +25,7 @@ int main()
             address TEXT NOT NULL,
             port TEXT NOT NULL,
             time INTEGER NOT NULL,
+            n_players INTEGER NOT NULL,
             PRIMARY KEY (address, port)
         );
     )";
@@ -179,7 +180,7 @@ int main()
 
                 if (request.find("GET /servers") == 0)
                 {
-                    const char *query = "SELECT address, port FROM servers WHERE time >= strftime('%s', 'now') - 60;";
+                    const char *query = "SELECT address, port, n_players FROM servers WHERE time >= strftime('%s', 'now') - 60;";
                     sqlite3_stmt *stmt;
 
                     if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK)
@@ -196,12 +197,13 @@ int main()
                     {
                         const char *address = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
                         const char *port = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+                        const char *nPlayers = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
 
                         if (!firstElement)
                         {
                             responseStream << ",";
                         }
-                        responseStream << "{\"address\": \"" << address << "\", \"port\": \"" << port << "\"}";
+                        responseStream << "{\"address\": \"" << address << "\", \"port\": \"" << port << "\", \"nPlayers\": \"" << nPlayers << "\"}";
                         firstElement = false;
                     }
 
@@ -227,25 +229,24 @@ int main()
                 }
                 else if (request.find("POST /publish") == 0)
                 {
-                    std::string requestBody = request.substr(headerSize);
+                    std::istringstream iss(request.substr(headerSize));
+                    std::string address, port, nPlayers;
 
-                    auto delimiterPos = requestBody.find(" ");
-                    if (delimiterPos == std::string::npos)
+                    if (!(iss >> address >> port >> nPlayers))
                     {
-                        std::cerr << "could not separate ip and port" << std::endl;
+                        std::cerr << "Could not separate ip, port, and nPlayers" << std::endl;
                         continue;
                     }
-                    const std::string address = requestBody.substr(0, delimiterPos);
-                    const std::string port = requestBody.substr(delimiterPos + 1);
 
-                    std::cout << "received server: address: " << address << " port: " << port << std::endl;
+                    std::cout << "received server: address: " << address << " port: " << port << " number of player: " << nPlayers << std::endl;
 
-                    const std::string query = "INSERT OR REPLACE INTO servers (address, port, time) VALUES (?, ?, strftime('%s', 'now'));";
+                    const std::string query = "INSERT OR REPLACE INTO servers (address, port, time, n_players) VALUES (?, ?, strftime('%s', 'now'), ?);";
                     sqlite3_stmt *stmt;
                     sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr);
 
                     sqlite3_bind_text(stmt, 1, address.c_str(), -1, SQLITE_STATIC);
                     sqlite3_bind_text(stmt, 2, port.c_str(), -1, SQLITE_STATIC);
+                    sqlite3_bind_text(stmt, 3, nPlayers.c_str(), -1, SQLITE_STATIC);
 
                     if (sqlite3_step(stmt) != SQLITE_DONE)
                     {

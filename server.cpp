@@ -81,7 +81,7 @@ void receive(int &udpSocket, std::vector<Client> &clients)
     }
 }
 
-void publishServerAddress(std::string address, uint16_t port)
+void publishServerAddress(std::string address, uint16_t port, std::vector<Client> &clients)
 {
     constexpr int SERVER_PORT = 8080;
     constexpr uint16_t PERIOD = 30;
@@ -100,17 +100,28 @@ void publishServerAddress(std::string address, uint16_t port)
     std::memcpy(&serverAddress.sin_addr.s_addr, hostEntry->h_addr, hostEntry->h_length);
     serverAddress.sin_port = htons(SERVER_PORT);
 
-    const std::string body = address + " " + std::to_string(port);
-    std::string httpRequest = "POST /publish HTTP/1.1\r\n"
-                              "Host: " +
-                              addressesServerAddress + "\r\n"
-                                                       "Content-Type: text/plain\r\n"
-                                                       "Content-Length: " +
-                              std::to_string(body.size()) + "\r\n\r\n" +
-                              body;
-
+    uint8_t time = PERIOD;
+    size_t lastNPlayers = clients.size();
     while (true)
     {
+        if (time < PERIOD && lastNPlayers == clients.size())
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            time++;
+            continue;
+        }
+        time = 0;
+        lastNPlayers = clients.size();
+
+        const std::string body = address + " " + std::to_string(port) + " " + std::to_string(clients.size());
+        std::string httpRequest = "POST /publish HTTP/1.1\r\n"
+                                  "Host: " +
+                                  addressesServerAddress + "\r\n"
+                                                           "Content-Type: text/plain\r\n"
+                                                           "Content-Length: " +
+                                  std::to_string(body.size()) + "\r\n\r\n" +
+                                  body;
+
         int tcpSocket = socket(AF_INET, SOCK_STREAM, 0);
         if (tcpSocket < 0)
         {
@@ -136,8 +147,6 @@ void publishServerAddress(std::string address, uint16_t port)
             throw std::runtime_error("error receiving response");
         }
         close(tcpSocket);
-
-        std::this_thread::sleep_for(std::chrono::seconds(PERIOD));
     }
 }
 
@@ -175,7 +184,7 @@ int main(int argc, char *argv[])
     std::thread tcpThread;
     if (argc == 4)
     {
-        tcpThread = std::thread(&publishServerAddress, argv[2], std::stoi(argv[3]));
+        tcpThread = std::thread(&publishServerAddress, argv[2], std::stoi(argv[3]), std::ref(clients));
     }
 
     Sphere ball = initialBall;

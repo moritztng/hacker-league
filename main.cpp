@@ -2247,10 +2247,10 @@ int main(int argc, char *argv[])
 
                 nlohmann::json servers = nlohmann::json::parse(response);
 
-                std::cout << "Servers (Address, Port)" << std::endl;
+                std::cout << "Servers (Address, Port, Current Number of Players)" << std::endl;
                 for (int i = 0; i < servers.size(); i++)
                 {
-                    std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << std::endl;
+                    std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << ", " << std::string(servers[i]["nPlayers"]) << std::endl;
                 }
                 std::cout << "\nEnter the number of the server you want to choose: ";
                 int choice;
@@ -2259,6 +2259,12 @@ int main(int argc, char *argv[])
                 if (choice < 1 || choice > servers.size())
                 {
                     std::cerr << "Invalid choice." << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                if (std::stoi(std::string(servers[choice - 1]["nPlayers"])) > 1)
+                {
+                    std::cerr << "Server is full. Already 2 players on server." << std::endl;
                     return EXIT_FAILURE;
                 }
 
