@@ -1,5 +1,4 @@
-https://github.com/user-attachments/assets/3a630d46-ec17-4da8-8879-76320ea563fe
-# Hacker League
+https://github.com/user-attachments/assets/e8a15f8f-6383-4ccb-a74a-a1911f3507eb
 ## Install
 Currently only debian based distros with x86_64. Please help me build it on other platforms. If you have an external GPU, make sure the drivers are installed
 ```bash
