@@ -13,4 +13,4 @@ mkdir hacker-league
 cd hacker-league
 curl -L -o "$BINARY_NAME" "https://github.com/moritztng/hacker-league/releases/latest/download/$BINARY_NAME"
 chmod +x "$BINARY_NAME"
-curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
+curl -L -o "gamepad.txt" "https://raw.githubusercontent.com/moritztng/hacker-league/refs/heads/main/gamepad.txt"
