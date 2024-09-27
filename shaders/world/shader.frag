@@ -21,7 +21,7 @@ void main() {
     vec3 color3d;
     if (index == 0) {
         if (normal.y < -0.5) {
-            color3d = vec3(0.01, 0.01, 0.01);
+            color3d = vec3(0.03, 0.03, 0.03);
         } else if (normal.y > 0.5) {
             if (int(floor(position.z / stripe)) % 2 == 0) {
                 color3d = vec3(0.0, 0.4, 0.0);
