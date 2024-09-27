@@ -60,11 +60,11 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
     constexpr float PERIOD = 1.f / FREQUENCY;
     constexpr float MAX_ACCELERATION = 30;
     constexpr float CAR_FRICTION = 10;
-    constexpr float BALL_FRICTION = 5;
-    constexpr float TURN_RADIUS_MIN = 0.5;
+    constexpr float BALL_FRICTION = 10;
+    constexpr float TURN_RADIUS_MIN = 0.3;
     constexpr float TURN_RADIUS_RATE = 0.5;
-    constexpr float MAX_SPEED = 50;
-    constexpr float GRAVITY = 3;
+    constexpr float MAX_SPEED = 40;
+    constexpr float GRAVITY = 4;
     constexpr float BALL_RESTITUTION = 0.6;
     constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
     constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
@@ -174,20 +174,20 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
     if (halfArenaSize.x() - abs(ball.objectState.position.x()) < ball.radius)
     {
         ball.objectState.position.x() = (ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - ball.radius);
-        ball.objectState.velocity.x() *= -1;
+        ball.objectState.velocity.x() *= -BALL_RESTITUTION;
     }
     // front + back wall
     if (halfArenaSize.z() - abs(ball.objectState.position.z()) < ball.radius && (ball.objectState.position.y() > goal.y() || abs(ball.objectState.position.x()) > goal.x() / 2))
     {
         ball.objectState.position.z() = (ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - ball.radius);
-        ball.objectState.velocity.z() *= -1;
+        ball.objectState.velocity.z() *= -BALL_RESTITUTION;
     }
     // goal
     if (abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
     {
         if (updateScore)
         {
-            players[ball.objectState.position.z() < 0 ? 0 : 1].score += 1;
+            players[ball.objectState.position.z() < 0 ? 1 : 0].score += 1;
         }
 
         ball.objectState.position.setZero();
