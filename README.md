@@ -16,7 +16,7 @@ Choose server from public server list
 ```bash
 ./hacker-league servers
 ```
-Connect to server with `server-ip` and `server-port`
+Or connect to server with `server-ip` and `server-port`
 ```bash
 ./hacker-league <server-ip> <server-port>
 ```
