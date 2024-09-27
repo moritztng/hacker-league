@@ -19,7 +19,7 @@ Choose server from public server list
 ```
 Connect to server with `server-ip` and `server-port`
 ```bash
-./hacker-league servers <server-ip> <server-port>
+./hacker-league <server-ip> <server-port>
 ```
 # Server
 ## Install
@@ -29,7 +29,7 @@ sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/ha
 ## Run
 Specify `public-ip` and `public-port` if the server should be added to the public server list
 ```bash
-./server <local-port> <public-ip> <public-port>
+./server <local-port> [<public-ip>] [<public-port>]
 ```
 ## Build from source
 ```bash
