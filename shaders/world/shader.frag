@@ -7,6 +7,8 @@ layout(location = 2) flat in uint index;
 layout(location = 0) out vec4 color;
 
 void main() {
+    vec3 player0Color = vec3(0.0, 1.0, 1.0);
+    vec3 player1Color = vec3(1.0, 0.0, 1.0);
     uint stripe = 10;
     vec3 lightPosition = vec3(0.0, 20.0, 0.0);
     vec3 lightColor = vec3(1.0, 1.0, 1.0);
@@ -18,24 +20,28 @@ void main() {
 
     vec3 color3d;
     if (index == 0) {
-        if (normal.y > 0.5) {
+        if (normal.y < -0.5) {
+            color3d = vec3(0.01, 0.01, 0.01);
+        } else if (normal.y > 0.5) {
             if (int(floor(position.z / stripe)) % 2 == 0) {
                 color3d = vec3(0.0, 0.4, 0.0);
             } else {
                 color3d = vec3(0.0, 0.5, 0.0);
             }
-        } else {
-            color3d = vec3(0.0, 1.0, 1.0);
+        } else if (normal.z < -0.5) {
+            color3d = player1Color;
+        } else if (normal.z > 0.5) {
+            color3d = player0Color;
         }
     } else if (index == 1) {
         color3d = vec3(1.0, 1.0, 1.0);
-    } else {
+    } else { 
         if (position.z > 0.5) {
-            color3d = vec3(0.0, 1.0, 1.0);
+            color3d = index == 2 ? player0Color : player1Color;
         } else {
             color3d = vec3(0.05, 0.05, 0.05);
         }
-    } 
+    }
 
     float distance = length(lightPosition - position);
     color = vec4(color3d, 1.0) * vec4(ambient + max(dot(normalize(normal), normalize(lightPosition - position)), 0.0) * lightIntensity * (1.0 / (attenuationConstant + attenuationLinear * distance + attenuationQuadratic * distance * distance)) * lightColor, 1.0);
