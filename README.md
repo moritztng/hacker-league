@@ -1,14 +1,35 @@
 https://github.com/user-attachments/assets/3a630d46-ec17-4da8-8879-76320ea563fe
-# Install
+# Hacker League
+## Install
 Currently only debian based distros with x86_64. Please help me build it on other platforms. If you have an external GPU, make sure the drivers are installed
 ```bash
-sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | bash
+sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | BINARIES="game" bash
+cd hacker-league
 ```
 ## Play
 Use a gamepad for maximum fun
+### Singleplayer
 ```bash
-cd hacker-league
 ./hacker-league
+```
+### Multiplayer
+Choose server from public server list
+```bash
+./hacker-league servers
+```
+Connect to server with `server-ip` and `server-port`
+```bash
+./hacker-league servers <server-ip> <server-port>
+```
+# Server
+## Install
+```bash
+sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | BINARIES="server" bash
+```
+## Run
+Specify `public-ip` and `public-port` if the server should be added to the public server list
+```bash
+./server <local-port> <public-ip> <public-port>
 ```
 ## Build from source
 ```bash
