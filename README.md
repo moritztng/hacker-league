@@ -30,11 +30,23 @@ Specify `public-ip` and `public-port` if the server should be added to the publi
 ```bash
 ./server <local-port> [<public-ip>] [<public-port>]
 ```
-## Build from source
+# Build from source
+## Debian
 ```bash
 git clone https://github.com/moritztng/hacker-league.git
 cd hacker-league
+sudo apt update
 sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make libsqlite3-dev libcurl4-openssl-dev
+curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
+chmod +x ./shaders/glslc
+make debug
+```
+## Arch
+```bash
+git clone https://github.com/moritztng/hacker-league.git
+cd hacker-league
+sudo pacman -Syu
+sudo pacman -S vulkan-headers vulkan-validation-layers spirv-tools glfw glm eigen vim xxd gcc make sqlite curl
 curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
 chmod +x ./shaders/glslc
 make debug
