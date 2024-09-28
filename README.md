@@ -1,46 +1,56 @@
-https://github.com/user-attachments/assets/3a630d46-ec17-4da8-8879-76320ea563fe
-# Install
-Currently debian and arch based distros with x86_64. Please help me build it on other platforms. If you have an external GPU, make sure the drivers are installed
+https://github.com/user-attachments/assets/e8a15f8f-6383-4ccb-a74a-a1911f3507eb
+## Install
+Currently only debian based distros with x86_64. Please help me build it on other platforms. If you have an external GPU, make sure the drivers are installed
 ```bash
-sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | bash
+sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | BINARIES="game" bash
+cd hacker-league
 ```
 ## Play
 Use a gamepad for maximum fun
+### Singleplayer
 ```bash
-cd hacker-league
 ./hacker-league
 ```
-## Build from source
-
-Debian based:
+### Multiplayer
+Choose server from public server list
+```bash
+./hacker-league servers
+```
+Or connect to server with `server-ip` and `server-port`
+```bash
+./hacker-league <server-ip> <server-port>
+```
+# Server
+## Install
+```bash
+sudo apt install curl && curl -sL https://raw.githubusercontent.com/moritztng/hacker-league/main/install.sh | BINARIES="server" bash
+```
+## Run
+Specify `public-ip` and `public-port` if the server should be added to the public server list
+```bash
+./server <local-port> [<public-ip>] [<public-port>]
+```
+# Build from source
+## Debian
 ```bash
 git clone https://github.com/moritztng/hacker-league.git
 cd hacker-league
-sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make
+sudo apt update
+sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make libsqlite3-dev libcurl4-openssl-dev
 curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
 chmod +x ./shaders/glslc
 make debug
-curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
 ```
-
-Arch based / Manjaro etc.:
+## Arch
 ```bash
-pacman -Syu (for updating your system first)
-pacman -S curl git vim xxd make base-devel vulkan-validation-layers vulkan-headers spirv-tools glfw glm eigen vim make
 git clone https://github.com/moritztng/hacker-league.git
 cd hacker-league
-make
+sudo pacman -Syu
+sudo pacman -S vulkan-headers vulkan-validation-layers spirv-tools glfw glm eigen vim xxd gcc make sqlite curl
 curl -L -o ./shaders/glslc https://github.com/moritztng/hacker-league/releases/download/glslc/glslc
 chmod +x ./shaders/glslc
 make debug
-or make -j32 debug if you want to build 32 jobs at once (when you have a cpu with multiple cores which can do 2 threads at a time)
-curl -L -o "gamepad.txt" https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt
 ```
-Then you find the binary hacker-league that you can just run with:
-./hacker-league
-
-Have fun!
-
 ## Community
 - Discord Server: https://discord.gg/BbNH27st
 - I build in public on X: https://x.com/moritzthuening

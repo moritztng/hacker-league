@@ -5,37 +5,36 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <set>
 #include <thread>
 #include <optional>
 #include <eigen3/Eigen/Dense>
-#include "shaders/vert.spv.h"
-#include "shaders/frag.spv.h"
+#include "shaders/world/vert.spv.h"
+#include "shaders/world/frag.spv.h"
+#include "shaders/hud/vert.spv.h"
+#include "shaders/hud/frag.spv.h"
 
-struct ObjectState
-{
-    Eigen::Vector3f position;
-    Eigen::Vector3f velocity;
-    Eigen::Vector3f orientation;
-};
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-struct Sphere
-{
-    ObjectState objectState;
-    float radius;
-};
+#include <curl/curl.h>
+#include "json.hpp"
 
-struct Box
-{
-    ObjectState objectState;
-    Eigen::Vector3f size;
-};
+#include "common.h"
 
-struct Action
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include "font.h"
+
+struct Input
 {
-    float throttle;
-    float steering;
+    Action action;
     bool ballCamPressed;
     bool close;
 };
@@ -43,228 +42,145 @@ struct Action
 struct State
 {
     Box arena;
-    Box car;
-    Sphere ball;
     Eigen::Vector2f goal;
-    Action action;
-    bool ballCam;
+    Sphere ball;
+    Eigen::Vector3f carSize;
+    std::vector<Player> players;
+    uint8_t playerId;
+    int64_t countdown;
+    int64_t transitionCountdown;
+    Input input;
 };
 
 // TODO: lots of low hanging fruit to make it more efficient, sync with graphics
-void physics(State &state)
+void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in6> &serverAddress)
 {
+    bool multiplayer = serverAddress.has_value();
+
+    int udpSocket;
+    if (multiplayer)
+    {
+        udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
+        if (udpSocket < 0)
+        {
+            throw std::runtime_error("error creating udp socket");
+        }
+        char buffer = 0;
+        sendto(udpSocket, &buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+        int recvLength = recv(udpSocket, &buffer, sizeof(buffer), 0);
+        if (recvLength == 0)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error receiving playerId");
+        }
+        state.playerId = buffer;
+
+        int flags = fcntl(udpSocket, F_GETFL, 0);
+        if (flags == -1)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error getting socket flags");
+        }
+        if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) == -1)
+        {
+            close(udpSocket);
+            throw std::runtime_error("error setting O_NONBLOCK flag");
+        }
+    }
+
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
-    constexpr float MAX_ACCELERATION = 30;
-    constexpr float CAR_FRICTION = 10;
-    constexpr float BALL_FRICTION = 5;
-    constexpr float TURN_RADIUS_MIN = 0.5;
-    constexpr float TURN_RADIUS_RATE = 0.5;
-    constexpr float MAX_SPEED = 50;
-    constexpr float GRAVITY = 3;
-    constexpr float BALL_RESTITUTION = 0.6;
-    constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
-    constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
-    constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
-    constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
-    while (!state.action.close)
+    constexpr size_t N_RECORDS = 5 * FREQUENCY;
+
+    Sphere ball = state.ball;
+    std::vector<Player> players = state.players;
+    Player records[N_RECORDS];
+    uint32_t stateId = 0;
+    uint32_t statesBehind = 0;
+    const auto period = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::duration<float>(PERIOD));
+    auto targetTime = std::chrono::high_resolution_clock::now();
+    while (!state.input.close)
     {
-        auto start = std::chrono::high_resolution_clock::now();
-        // car
-        // acceleration
-        Eigen::Vector3f orientationVector = {std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())};
-        state.car.objectState.velocity += orientationVector * MAX_DELTA_SPEED * state.action.throttle;
-        float speed = state.car.objectState.velocity.norm();
-        if (speed > DELTA_CAR_FRICTION)
+        if (statesBehind == 0)
         {
-            state.car.objectState.velocity -= state.car.objectState.velocity.normalized() * DELTA_CAR_FRICTION;
-            speed -= DELTA_CAR_FRICTION;
-            if (speed > MAX_SPEED)
+            players[state.playerId].action = state.input.action;
+            if (multiplayer)
             {
-                state.car.objectState.velocity *= MAX_SPEED / speed;
-                speed = MAX_SPEED;
+                records[stateId % N_RECORDS] = players[state.playerId];
             }
         }
         else
         {
-            state.car.objectState.velocity.setZero();
-            speed = 0;
+            players[state.playerId].action = records[stateId % N_RECORDS].action;
+            players[state.playerId].carState = records[stateId % N_RECORDS].carState;
         }
-        // steering
-        int backwards = state.car.objectState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-        state.car.objectState.orientation.y() -= backwards * state.action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
-        state.car.objectState.velocity = backwards * Eigen::Vector3f(std::sin(state.car.objectState.orientation.y()), 0.0f, std::cos(state.car.objectState.orientation.y())) * speed;
-        // wall collision
-        // TODO: make more efficient
-        Eigen::Vector3f halfArenaSize = state.arena.size / 2.f;
-        Eigen::Vector3f halfCarSize = state.car.size / 2.f;
-        std::vector<Eigen::Vector2f> localCorners = {
-            {-halfCarSize.x(), -halfCarSize.z()},
-            {halfCarSize.x(), -halfCarSize.z()},
-            {-halfCarSize.x(), halfCarSize.z()},
-            {halfCarSize.x(), halfCarSize.z()}};
-        for (const auto &localCorner : localCorners)
+
+        if (multiplayer)
         {
-            Eigen::Vector2f globalCorner = Eigen::Rotation2Df(state.car.objectState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
-            float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
-            float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
-            if (xDistance > 0)
+            char buffer[102];
+            if (statesBehind == 0)
             {
-                int leftRight = globalCorner.x() > 0 ? 1 : -1;
-                state.car.objectState.position.x() -= leftRight * (xDistance + 0.001f);
-                if (leftRight * state.car.objectState.velocity.x() > 0)
+                std::memcpy(buffer, &stateId, 4);
+                std::memcpy(buffer + 4, players[state.playerId].carState.position.data(), 12);
+                std::memcpy(buffer + 16, players[state.playerId].carState.velocity.data(), 12);
+                std::memcpy(buffer + 28, players[state.playerId].carState.orientation.data(), 12);
+                std::memcpy(buffer + 40, &players[state.playerId].action.steering, 4);
+                std::memcpy(buffer + 44, &players[state.playerId].action.throttle, 4);
+                sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
+
+                int recvLength = recv(udpSocket, buffer, sizeof(buffer), 0);
+                if (recvLength > 0)
                 {
-                    state.car.objectState.velocity.x() = 0;
+                    uint32_t serverId;
+                    uint8_t otherPlayer = state.playerId ^ 1;
+                    std::memcpy(&serverId, buffer, 4);
+                    std::memcpy(players[otherPlayer].carState.position.data(), buffer + 4, 12);
+                    std::memcpy(players[otherPlayer].carState.velocity.data(), buffer + 16, 12);
+                    std::memcpy(players[otherPlayer].carState.orientation.data(), buffer + 28, 12);
+                    std::memcpy(&players[otherPlayer].action.steering, buffer + 40, 4);
+                    std::memcpy(&players[otherPlayer].action.throttle, buffer + 44, 4);
+                    std::memcpy(ball.objectState.position.data(), buffer + 48, 12);
+                    std::memcpy(ball.objectState.velocity.data(), buffer + 60, 12);
+                    std::memcpy(ball.objectState.orientation.data(), buffer + 72, 12);
+                    std::memcpy(&state.countdown, buffer + 84, 8);
+                    std::memcpy(&state.transitionCountdown, buffer + 92, 8);
+                    std::memcpy(&players[0].score, buffer + 100, 1);
+                    std::memcpy(&players[1].score, buffer + 101, 1);
+
+                    // TODO: fix countdown and score latency
+                    if (state.transitionCountdown > 0)
+                    {
+                        records[stateId % N_RECORDS] = initialPlayers[state.playerId];
+                    }
+
+                    players[state.playerId].action = records[serverId % N_RECORDS].action;
+                    players[state.playerId].carState = records[serverId % N_RECORDS].carState;
+                    statesBehind = stateId - serverId;
+                    stateId = serverId;
                 }
             }
-            if (zDistance > 0)
+            else
             {
-                int backFront = globalCorner.y() > 0 ? 1 : -1;
-                state.car.objectState.position.z() -= backFront * (zDistance + 0.001f);
-                if (backFront * state.car.objectState.velocity.z() > 0)
-                {
-                    state.car.objectState.velocity.z() = 0;
-                }
-            }
-        }
-        // ball
-        // vertical
-        if (state.ball.objectState.position.y() < state.ball.radius)
-        {
-            state.ball.objectState.position.y() = state.ball.radius;
-            state.ball.objectState.velocity.y() *= state.ball.objectState.velocity.y() < -0.1 ? -BALL_RESTITUTION : 0;
-        }
-        else if (state.ball.objectState.position.y() > state.ball.radius)
-        {
-            state.ball.objectState.velocity.y() -= DELTA_GRAVITY;
-            if (state.ball.objectState.position.y() > state.arena.size.y() - state.ball.radius)
-            {
-                state.ball.objectState.position.y() = state.arena.size.y() - state.ball.radius;
-                state.ball.objectState.velocity.y() *= -1;
-            }
-        }
-        // friction
-        if (state.ball.objectState.position.y() == state.ball.radius)
-        {
-            Eigen::Vector3f &velocity = state.ball.objectState.velocity;
-            float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
-            velocity.x() *= scale;
-            velocity.z() *= scale;
-        }
-        // side walls
-        if (halfArenaSize.x() - abs(state.ball.objectState.position.x()) < state.ball.radius)
-        {
-            state.ball.objectState.position.x() = (state.ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - state.ball.radius);
-            state.ball.objectState.velocity.x() *= -1;
-        }
-        // front + back wall
-        if (halfArenaSize.z() - abs(state.ball.objectState.position.z()) < state.ball.radius && (state.ball.objectState.position.y() > state.goal.y() || abs(state.ball.objectState.position.x()) > state.goal.x() / 2))
-        {
-            state.ball.objectState.position.z() = (state.ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - state.ball.radius);
-            state.ball.objectState.velocity.z() *= -1;
-        }
-        // goal
-        if (abs(state.ball.objectState.position.z()) > state.arena.size.z() / 2 + state.ball.radius)
-        {
-            state.ball.objectState.position.setZero();
-            state.ball.objectState.velocity.setZero();
-        }
-        // goal posts + crossbar
-        for (int i = 0; i < 2; ++i)
-        {
-            if ((i == 0) ? state.ball.objectState.position.y() < state.goal.y() - state.ball.radius : abs(state.ball.objectState.position.x()) < state.goal.x() / 2 - state.ball.radius)
-            {
-                Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(state.goal.x() / 2 - abs(state.ball.objectState.position.x()), 0.f, state.arena.size.z() / 2 - abs(state.ball.objectState.position.z())) : Eigen::Vector3f(0.f, state.goal.y() - state.ball.objectState.position.y(), state.arena.size.z() / 2 - abs(state.ball.objectState.position.z()));
-                float distance = difference.norm();
-                if (distance < state.ball.radius)
-                {
-                    Eigen::Vector3f adjustedDifference = difference.cwiseProduct(state.ball.objectState.position.cwiseSign());
-                    state.ball.objectState.position -= adjustedDifference * (state.ball.radius / distance - 1);
-                    Eigen::Vector3f normal = adjustedDifference / distance;
-                    state.ball.objectState.velocity -= 2 * state.ball.objectState.velocity.dot(normal) * normal;
-                }
-            }
-        }
-        // car ball collision
-        Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(state.car.objectState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
-        Eigen::Vector3f localBallPosition = rotation.transpose() * (state.ball.objectState.position - state.car.objectState.position);
-        Eigen::Vector3f halfSize = state.car.size / 2.f;
-        Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfSize).cwiseMin(halfSize) - localBallPosition;
-        float distance = difference.norm();
-        if (distance < state.ball.radius)
-        {
-            state.ball.objectState.position -= rotation * difference * (state.ball.radius / distance - 1);
-            Eigen::Vector3f collisionNormal = (state.ball.objectState.position - state.car.objectState.position).normalized();
-            float velocityAlongNormal = (state.ball.objectState.velocity - state.car.objectState.velocity).dot(collisionNormal);
-            if (velocityAlongNormal < 0)
-            {
-                state.ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
+                statesBehind--;
             }
         }
 
-        state.car.objectState.position += state.car.objectState.velocity * PERIOD;
-        state.ball.objectState.position += state.ball.objectState.velocity * PERIOD;
+        physicsStep(state.arena.size, state.goal, ball, state.carSize, players, false);
 
-        float elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-        if (elapsed < PERIOD)
+        if (statesBehind == 0)
         {
-            std::this_thread::sleep_for(std::chrono::duration<float>(PERIOD - elapsed));
+            state.ball = ball;
+            state.players = players;
+            targetTime += period;
+            std::this_thread::sleep_until(targetTime);
         }
+        stateId++;
+    }
+    if (multiplayer)
+    {
+        close(udpSocket);
     }
 }
-
-struct QueueFamilyIndices
-{
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-    bool isComplete()
-    {
-        return graphicsFamily.has_value() && presentFamily.has_value();
-    }
-};
-
-struct SwapChainSupportDetails
-{
-    VkSurfaceCapabilitiesKHR capabilities;
-    std::vector<VkPresentModeKHR> presentModes;
-};
-
-struct Vertex
-{
-    glm::vec3 pos;
-    glm::vec3 normal;
-    static VkVertexInputBindingDescription getBindingDescription()
-    {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        return bindingDescription;
-    }
-    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
-    {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, normal);
-
-        return attributeDescriptions;
-    }
-};
-
-struct UniformBufferObject
-{
-    alignas(16) glm::mat4 model[3];
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
-};
 
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
@@ -280,6 +196,41 @@ constexpr bool enableValidationLayers = true;
 class InputGraphics
 {
 private:
+    struct QueueFamilyIndices
+    {
+        std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
+        bool isComplete()
+        {
+            return graphicsFamily.has_value() && presentFamily.has_value();
+        }
+    };
+
+    struct SwapChainSupportDetails
+    {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkPresentModeKHR> presentModes;
+    };
+
+    struct Vertex
+    {
+        glm::vec3 position;
+        glm::vec3 normal;
+    };
+
+    struct HudVertex
+    {
+        glm::vec2 position;
+        glm::vec2 textureCoordinate;
+    };
+
+    struct UniformBufferObject
+    {
+        alignas(16) glm::mat4 model[4];
+        alignas(16) glm::mat4 view;
+        alignas(16) glm::mat4 proj;
+    };
+
     GLFWwindow *window;
 
     VkInstance instance;
@@ -322,6 +273,20 @@ private:
 
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
+
+    VkDeviceMemory fontImageMemory;
+    VkImage fontImage;
+    VkImageView fontImageView;
+    VkSampler fontSampler;
+
+    VkDescriptorPool hudDescriptorPool;
+    VkDescriptorSet hudDescriptorSet;
+    VkDescriptorSetLayout hudDescriptorSetLayout;
+    VkPipeline hudPipeline;
+    VkPipelineLayout hudPipelineLayout;
+    VkBuffer hudVertexBuffer;
+    VkDeviceMemory hudVertexBufferMemory;
+    void *hudMappedData;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -685,6 +650,86 @@ private:
         createSwapChainFramebuffers();
     }
 
+    VkCommandBuffer beginSingleTimeCommands()
+    {
+        VkCommandBufferAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool = commandPool;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer;
+        vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+        return commandBuffer;
+    }
+
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer)
+    {
+        vkEndCommandBuffer(commandBuffer);
+
+        VkSubmitInfo submitInfo = {};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(graphicsQueue);
+
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    }
+
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+    {
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        VkImageMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        else
+        {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+
+        vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        endSingleTimeCommands(commandBuffer);
+    }
+
 public:
     InputGraphics(State &state)
         : state(state) {}
@@ -699,6 +744,7 @@ public:
             glfwSetWindowUserPointer(window, this);
             glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
+            // TODO: environment variable
             std::ifstream file("gamepad.txt");
             if (!file)
             {
@@ -746,7 +792,7 @@ public:
                 VkApplicationInfo appInfo{};
                 appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
                 appInfo.pApplicationName = "hacker league";
-                appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+                appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
                 appInfo.pEngineName = "No Engine";
                 appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
                 appInfo.apiVersion = VK_API_VERSION_1_0;
@@ -797,16 +843,17 @@ public:
                 if (enableValidationLayers)
                 {
                     auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+                    const char *errorMessage = "failed to set up debug messenger!";
                     if (func != nullptr)
                     {
                         if (func(instance, &debugCreateInfo, nullptr, &debugMessenger) != VK_SUCCESS)
                         {
-                            throw std::runtime_error("failed to set up debug messenger!");
+                            throw std::runtime_error(errorMessage);
                         }
                     }
                     else
                     {
-                        throw std::runtime_error("failed to set up debug messenger!");
+                        throw std::runtime_error(errorMessage);
                     }
                 }
             }
@@ -861,12 +908,11 @@ public:
                     std::vector<VkSurfaceFormatKHR> formats;
                     if (formatCount != 0)
                     {
-
                         formats.resize(formatCount);
                         vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, formats.data());
                     }
 
-                    if (indices.isComplete() && extensionsSupported && !formats.empty() && !swapChainSupport.presentModes.empty() && supportedFeatures.samplerAnisotropy)
+                    if (indices.isComplete() && extensionsSupported && !formats.empty() && !swapChainSupport.presentModes.empty())
                     {
                         physicalDevice = device;
                         queueFamilyIndices = indices;
@@ -905,7 +951,7 @@ public:
                     queueCreateInfos.push_back(queueCreateInfo);
                 }
 
-                VkPhysicalDeviceFeatures deviceFeatures{};
+                VkPhysicalDeviceFeatures deviceFeatures{}; // no textures -> samplerAnisotropy false
                 deviceFeatures.samplerAnisotropy = VK_TRUE;
 
                 VkDeviceCreateInfo createInfo{};
@@ -961,7 +1007,7 @@ public:
                     throw std::runtime_error("failed to find supported depth format!");
                 }
             }
-            
+
             // create render pass
             {
                 VkAttachmentDescription colorAttachment{};
@@ -998,6 +1044,12 @@ public:
                 subpass.pColorAttachments = &colorAttachmentRef;
                 subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
+                VkSubpassDescription hudSubpass = {};
+                hudSubpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+                hudSubpass.colorAttachmentCount = 1;
+                hudSubpass.pColorAttachments = &colorAttachmentRef;
+                hudSubpass.pDepthStencilAttachment = nullptr;
+
                 VkSubpassDependency dependency{};
                 dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
                 dependency.dstSubpass = 0;
@@ -1006,170 +1058,30 @@ public:
                 dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
                 dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+                VkSubpassDependency hudDependency = {};
+                hudDependency.srcSubpass = 0;
+                hudDependency.dstSubpass = 1;
+                hudDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                hudDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                hudDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                hudDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
                 std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+                std::array<VkSubpassDescription, 2> subpasses = {subpass, hudSubpass};
+                std::array<VkSubpassDependency, 2> dependencies = {dependency, hudDependency};
                 VkRenderPassCreateInfo renderPassInfo{};
                 renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-                renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+                renderPassInfo.attachmentCount = 2;
                 renderPassInfo.pAttachments = attachments.data();
-                renderPassInfo.subpassCount = 1;
-                renderPassInfo.pSubpasses = &subpass;
-                renderPassInfo.dependencyCount = 1;
-                renderPassInfo.pDependencies = &dependency;
+                renderPassInfo.subpassCount = 2;
+                renderPassInfo.pSubpasses = subpasses.data();
+                renderPassInfo.dependencyCount = 2;
+                renderPassInfo.pDependencies = dependencies.data();
 
                 if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
                 {
                     throw std::runtime_error("failed to create render pass!");
                 }
-            }
-
-            // create descriptor set layout
-            {
-                VkDescriptorSetLayoutBinding uboLayoutBinding{};
-                uboLayoutBinding.binding = 0;
-                uboLayoutBinding.descriptorCount = 1;
-                uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                uboLayoutBinding.pImmutableSamplers = nullptr;
-                uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-                std::array<VkDescriptorSetLayoutBinding, 1> bindings = {uboLayoutBinding};
-                VkDescriptorSetLayoutCreateInfo layoutInfo{};
-                layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-                layoutInfo.pBindings = bindings.data();
-
-                if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
-                {
-                    throw std::runtime_error("failed to create descriptor set layout!");
-                }
-            }
-
-            // create graphics pipeline
-            {
-                VkShaderModule vertShaderModule = createShaderModule(__shaders_vert_spv, __shaders_vert_spv_len);
-                VkShaderModule fragShaderModule = createShaderModule(__shaders_frag_spv, __shaders_frag_spv_len);
-
-                VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-                vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-                vertShaderStageInfo.module = vertShaderModule;
-                vertShaderStageInfo.pName = "main";
-
-                VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-                fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-                fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-                fragShaderStageInfo.module = fragShaderModule;
-                fragShaderStageInfo.pName = "main";
-
-                VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-
-                VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-                vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-                auto bindingDescription = Vertex::getBindingDescription();
-                auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
-                vertexInputInfo.vertexBindingDescriptionCount = 1;
-                vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-                vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-                vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-                VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-                inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-                inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-                inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-                VkPipelineViewportStateCreateInfo viewportState{};
-                viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-                viewportState.viewportCount = 1;
-                viewportState.scissorCount = 1;
-
-                VkPipelineRasterizationStateCreateInfo rasterizer{};
-                rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-                rasterizer.depthClampEnable = VK_FALSE;
-                rasterizer.rasterizerDiscardEnable = VK_FALSE;
-                rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-                rasterizer.lineWidth = 1.0f;
-                // rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-                rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-                rasterizer.depthBiasEnable = VK_FALSE;
-
-                VkPipelineMultisampleStateCreateInfo multisampling{};
-                multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-                multisampling.sampleShadingEnable = VK_FALSE;
-                multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-                VkPipelineDepthStencilStateCreateInfo depthStencil{};
-                depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-                depthStencil.depthTestEnable = VK_TRUE;
-                depthStencil.depthWriteEnable = VK_TRUE;
-                depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-                depthStencil.depthBoundsTestEnable = VK_FALSE;
-                depthStencil.stencilTestEnable = VK_FALSE;
-
-                VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-                colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-                colorBlendAttachment.blendEnable = VK_FALSE;
-
-                VkPipelineColorBlendStateCreateInfo colorBlending{};
-                colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-                colorBlending.logicOpEnable = VK_FALSE;
-                colorBlending.logicOp = VK_LOGIC_OP_COPY;
-                colorBlending.attachmentCount = 1;
-                colorBlending.pAttachments = &colorBlendAttachment;
-                colorBlending.blendConstants[0] = 0.0f;
-                colorBlending.blendConstants[1] = 0.0f;
-                colorBlending.blendConstants[2] = 0.0f;
-                colorBlending.blendConstants[3] = 0.0f;
-
-                std::vector<VkDynamicState> dynamicStates = {
-                    VK_DYNAMIC_STATE_VIEWPORT,
-                    VK_DYNAMIC_STATE_SCISSOR};
-                VkPipelineDynamicStateCreateInfo dynamicState{};
-                dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-                dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-                dynamicState.pDynamicStates = dynamicStates.data();
-
-                VkPushConstantRange pushConstantRange = {};
-                pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // Stage where the push constants are used
-                pushConstantRange.offset = 0;                              // Offset into the push constant data
-                pushConstantRange.size = sizeof(uint);                     // Size of the push constant data
-
-                VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-                pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-                pipelineLayoutInfo.setLayoutCount = 1;
-                pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-                pipelineLayoutInfo.pushConstantRangeCount = 1;               // Number of push constant ranges
-                pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange; // Push constant ranges
-
-                if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
-                {
-                    throw std::runtime_error("failed to create pipeline layout!");
-                }
-
-                VkGraphicsPipelineCreateInfo pipelineInfo{};
-                pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-                pipelineInfo.stageCount = 2;
-                pipelineInfo.pStages = shaderStages;
-                pipelineInfo.pVertexInputState = &vertexInputInfo;
-                pipelineInfo.pInputAssemblyState = &inputAssembly;
-                pipelineInfo.pViewportState = &viewportState;
-                pipelineInfo.pRasterizationState = &rasterizer;
-                pipelineInfo.pMultisampleState = &multisampling;
-                pipelineInfo.pDepthStencilState = &depthStencil;
-                pipelineInfo.pColorBlendState = &colorBlending;
-                pipelineInfo.pDynamicState = &dynamicState;
-                pipelineInfo.layout = pipelineLayout;
-                pipelineInfo.renderPass = renderPass;
-                pipelineInfo.subpass = 0;
-                pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-
-                if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
-                {
-                    throw std::runtime_error("failed to create graphics pipeline!");
-                }
-
-                vkDestroyShaderModule(device, fragShaderModule, nullptr);
-                vkDestroyShaderModule(device, vertShaderModule, nullptr);
             }
 
             // create command pool
@@ -1183,63 +1095,362 @@ public:
                 {
                     throw std::runtime_error("failed to create graphics command pool!");
                 }
+            }
 
+            // create graphics pipelines
+            {
+                VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+                inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+                inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                inputAssembly.primitiveRestartEnable = VK_FALSE;
+                VkPipelineViewportStateCreateInfo viewportState{};
+                viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+                viewportState.viewportCount = 1;
+                viewportState.scissorCount = 1;
+                VkPipelineRasterizationStateCreateInfo rasterizer{};
+                rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+                rasterizer.depthClampEnable = VK_FALSE;
+                rasterizer.rasterizerDiscardEnable = VK_FALSE;
+                rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+                rasterizer.lineWidth = 1.0f;
+                rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                rasterizer.depthBiasEnable = VK_FALSE;
+                VkPipelineMultisampleStateCreateInfo multisampling{};
+                multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+                multisampling.sampleShadingEnable = VK_FALSE;
+                multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+                std::vector<VkDynamicState> dynamicStates = {
+                    VK_DYNAMIC_STATE_VIEWPORT,
+                    VK_DYNAMIC_STATE_SCISSOR};
+                VkPipelineDynamicStateCreateInfo dynamicState{};
+                dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+                dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+                dynamicState.pDynamicStates = dynamicStates.data();
+
+                // create world graphics pipeline
+                {
+                    VkDescriptorSetLayoutBinding uboLayoutBinding{};
+                    uboLayoutBinding.binding = 0;
+                    uboLayoutBinding.descriptorCount = 1;
+                    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    uboLayoutBinding.pImmutableSamplers = nullptr;
+                    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+                    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+                    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                    layoutInfo.bindingCount = 1;
+                    layoutInfo.pBindings = &uboLayoutBinding;
+
+                    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create descriptor set layout!");
+                    }
+
+                    VkShaderModule vertShaderModule = createShaderModule(__shaders_world_vert_spv, __shaders_world_vert_spv_len);
+                    VkShaderModule fragShaderModule = createShaderModule(__shaders_world_frag_spv, __shaders_world_frag_spv_len);
+
+                    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+                    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+                    vertShaderStageInfo.module = vertShaderModule;
+                    vertShaderStageInfo.pName = "main";
+
+                    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+                    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    fragShaderStageInfo.module = fragShaderModule;
+                    fragShaderStageInfo.pName = "main";
+
+                    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+                    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+                    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+                    VkVertexInputBindingDescription bindingDescription{};
+                    bindingDescription.binding = 0;
+                    bindingDescription.stride = sizeof(Vertex);
+                    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+                    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+                    attributeDescriptions[0].binding = 0;
+                    attributeDescriptions[0].location = 0;
+                    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+                    attributeDescriptions[0].offset = offsetof(Vertex, position);
+                    attributeDescriptions[1].binding = 0;
+                    attributeDescriptions[1].location = 1;
+                    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+                    attributeDescriptions[1].offset = offsetof(Vertex, normal);
+
+                    vertexInputInfo.vertexBindingDescriptionCount = 1;
+                    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+                    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+                    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+                    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+                    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+                    depthStencil.depthTestEnable = VK_TRUE;
+                    depthStencil.depthWriteEnable = VK_TRUE;
+                    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+                    depthStencil.depthBoundsTestEnable = VK_FALSE;
+                    depthStencil.stencilTestEnable = VK_FALSE;
+
+                    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+                    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                    colorBlendAttachment.blendEnable = VK_FALSE;
+
+                    VkPipelineColorBlendStateCreateInfo colorBlending{};
+                    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+                    colorBlending.logicOpEnable = VK_FALSE;
+                    colorBlending.logicOp = VK_LOGIC_OP_COPY;
+                    colorBlending.attachmentCount = 1;
+                    colorBlending.pAttachments = &colorBlendAttachment;
+                    colorBlending.blendConstants[0] = 0.0f;
+                    colorBlending.blendConstants[1] = 0.0f;
+                    colorBlending.blendConstants[2] = 0.0f;
+                    colorBlending.blendConstants[3] = 0.0f;
+
+                    VkPushConstantRange pushConstantRange = {};
+                    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                    pushConstantRange.offset = 0;
+                    pushConstantRange.size = sizeof(uint);
+
+                    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+                    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                    pipelineLayoutInfo.setLayoutCount = 1;
+                    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+                    pipelineLayoutInfo.pushConstantRangeCount = 1;
+                    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+                    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create pipeline layout!");
+                    }
+
+                    VkGraphicsPipelineCreateInfo pipelineInfo{};
+                    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+                    pipelineInfo.stageCount = 2;
+                    pipelineInfo.pStages = shaderStages;
+                    pipelineInfo.pVertexInputState = &vertexInputInfo;
+                    pipelineInfo.pInputAssemblyState = &inputAssembly;
+                    pipelineInfo.pViewportState = &viewportState;
+                    pipelineInfo.pRasterizationState = &rasterizer;
+                    pipelineInfo.pMultisampleState = &multisampling;
+                    pipelineInfo.pDepthStencilState = &depthStencil;
+                    pipelineInfo.pColorBlendState = &colorBlending;
+                    pipelineInfo.pDynamicState = &dynamicState;
+                    pipelineInfo.layout = pipelineLayout;
+                    pipelineInfo.renderPass = renderPass;
+                    pipelineInfo.subpass = 0;
+                    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+                    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create graphics pipeline!");
+                    }
+
+                    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+                    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+                }
+
+                // create hud graphics pipeline
+                {
+                    VkDescriptorSetLayoutBinding layoutBinding{};
+                    layoutBinding.binding = 0;
+                    layoutBinding.descriptorCount = 1;
+                    layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    layoutBinding.pImmutableSamplers = nullptr;
+                    layoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+                    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                    layoutInfo.bindingCount = 1;
+                    layoutInfo.pBindings = &layoutBinding;
+
+                    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &hudDescriptorSetLayout) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create descriptor set layout!");
+                    }
+
+                    VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+                    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                    colorBlendAttachment.blendEnable = VK_TRUE;
+                    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+                    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+                    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+                    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+                    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+                    VkPipelineColorBlendStateCreateInfo colorBlending = {};
+                    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+                    colorBlending.logicOpEnable = VK_FALSE;
+                    colorBlending.attachmentCount = 1;
+                    colorBlending.pAttachments = &colorBlendAttachment;
+
+                    VkVertexInputBindingDescription bindingDescription = {};
+                    bindingDescription.binding = 0;
+                    bindingDescription.stride = sizeof(HudVertex);
+                    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+                    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+                    attributeDescriptions[0].binding = 0;
+                    attributeDescriptions[0].location = 0;
+                    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+                    attributeDescriptions[0].offset = offsetof(HudVertex, position);
+
+                    attributeDescriptions[1].binding = 0;
+                    attributeDescriptions[1].location = 1;
+                    attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+                    attributeDescriptions[1].offset = offsetof(HudVertex, textureCoordinate);
+
+                    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+                    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+                    vertexInputInfo.vertexBindingDescriptionCount = 1;
+                    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+                    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+                    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+                    VkShaderModule vertShaderModule = createShaderModule(__shaders_hud_vert_spv, __shaders_hud_vert_spv_len);
+                    VkShaderModule fragShaderModule = createShaderModule(__shaders_hud_frag_spv, __shaders_hud_frag_spv_len);
+                    VkPipelineShaderStageCreateInfo shaderStages[2] = {};
+
+                    shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+                    shaderStages[0].module = vertShaderModule;
+                    shaderStages[0].pName = "main";
+
+                    shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                    shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    shaderStages[1].module = fragShaderModule;
+                    shaderStages[1].pName = "main";
+
+                    VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+                    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+                    depthStencil.depthTestEnable = VK_FALSE;
+                    depthStencil.depthWriteEnable = VK_FALSE;
+                    depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+                    depthStencil.stencilTestEnable = VK_FALSE;
+
+                    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+                    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                    pipelineLayoutInfo.setLayoutCount = 1;
+                    pipelineLayoutInfo.pSetLayouts = &hudDescriptorSetLayout;
+
+                    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &hudPipelineLayout) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create pipeline layout!");
+                    }
+
+                    VkGraphicsPipelineCreateInfo pipelineInfoHUD = {};
+                    pipelineInfoHUD.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+                    pipelineInfoHUD.stageCount = 2;
+                    pipelineInfoHUD.pStages = shaderStages;
+                    pipelineInfoHUD.pVertexInputState = &vertexInputInfo;
+                    pipelineInfoHUD.pInputAssemblyState = &inputAssembly;
+                    pipelineInfoHUD.pViewportState = &viewportState;
+                    pipelineInfoHUD.pRasterizationState = &rasterizer;
+                    pipelineInfoHUD.pMultisampleState = &multisampling;
+                    pipelineInfoHUD.pDepthStencilState = &depthStencil;
+                    pipelineInfoHUD.pColorBlendState = &colorBlending;
+                    pipelineInfoHUD.pDynamicState = &dynamicState;
+                    pipelineInfoHUD.layout = hudPipelineLayout;
+                    pipelineInfoHUD.renderPass = renderPass;
+                    pipelineInfoHUD.subpass = 1;
+
+                    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfoHUD, nullptr, &hudPipeline) != VK_SUCCESS)
+                    {
+                        throw std::runtime_error("failed to create HUD pipeline!");
+                    }
+
+                    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+                    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+                }
+            }
+
+            // create swap chain and framebuffers
+            {
                 createSwapChainFramebuffers();
             }
+
+            // create uniform buffers
             {
-                Eigen::Vector3f halfSize = state.car.size / 2.f;
-                std::vector<glm::vec3> points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
-                                                  {halfSize.x(), -halfSize.y(), -halfSize.z()},
-                                                  {halfSize.x(), halfSize.y(), -halfSize.z()},
-                                                  {-halfSize.x(), halfSize.y(), -halfSize.z()},
-                                                  {-halfSize.x(), -halfSize.y(), halfSize.z()},
-                                                  {halfSize.x(), -halfSize.y(), halfSize.z()},
-                                                  {halfSize.x(), halfSize.y(), halfSize.z()},
-                                                  {-halfSize.x(), halfSize.y(), halfSize.z()}}};
-                std::vector<std::pair<std::array<int, 4>, glm::vec3>> faces = {{{{0, 1, 2, 3}, {0.0f, 0.0f, -1.0f}},
-                                                                                {{4, 5, 6, 7}, {0.0f, 0.0f, 1.0f}},
-                                                                                {{0, 1, 5, 4}, {0.0f, -1.0f, 0.0f}},
-                                                                                {{2, 3, 7, 6}, {0.0f, 1.0f, 0.0f}},
-                                                                                {{0, 3, 7, 4}, {-1.0f, 0.0f, 0.0f}},
-                                                                                {{1, 2, 6, 5}, {1.0f, 0.0f, 0.0f}}}};
+                VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+                uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+                uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+                uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+                {
+                    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+
+                    vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+                }
+            }
+
+            // create descriptor pool
+            {
+                VkDescriptorPoolSize poolSize{};
+                poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+                VkDescriptorPoolCreateInfo poolInfo{};
+                poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+                poolInfo.poolSizeCount = 1;
+                poolInfo.pPoolSizes = &poolSize;
+                poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to create descriptor pool!");
+                }
+            }
+
+            // create descriptor sets
+            {
+                std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+                VkDescriptorSetAllocateInfo allocInfo{};
+                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                allocInfo.descriptorPool = descriptorPool;
+                allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+                allocInfo.pSetLayouts = layouts.data();
+
+                descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+                if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to allocate descriptor sets!");
+                }
+
+                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+                {
+                    VkDescriptorBufferInfo bufferInfo{};
+                    bufferInfo.buffer = uniformBuffers[i];
+                    bufferInfo.offset = 0;
+                    bufferInfo.range = sizeof(UniformBufferObject);
+
+                    VkWriteDescriptorSet descriptorWrite{};
+                    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    descriptorWrite.dstSet = descriptorSets[i];
+                    descriptorWrite.dstBinding = 0;
+                    descriptorWrite.dstArrayElement = 0;
+                    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    descriptorWrite.descriptorCount = 1;
+                    descriptorWrite.pBufferInfo = &bufferInfo;
+
+                    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+                }
+            }
+
+            // create vertex and index buffer
+            {
+                // TODO: fix it for rasterizer.cullMode = VK_CULL_MODE_BACK_BIT, simplify
                 std::vector<Vertex> vertices;
-                for (const auto &[indices, normal] : faces)
-                {
-                    for (int index : indices)
-                    {
-                        vertices.push_back({points[index], normal});
-                    }
-                }
                 std::vector<uint16_t> indices;
-                for (uint16_t i = 0; i < faces.size() * 4; i += 4)
-                {
-                    indices.insert(indices.end(), {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3), i});
-                }
-                indicesOffsets.push_back(indices.size());
-
-                int verticesOffset = vertices.size();
-                const float PI = glm::pi<float>();
-                constexpr int RESOLUTION = 32;
-                for (int latitude = 0; latitude <= RESOLUTION; ++latitude)
-                {
-                    for (int longitude = 0; longitude <= RESOLUTION; ++longitude)
-                    {
-                        float theta = latitude * PI / RESOLUTION - PI / 2.f;
-                        float phi = longitude * 2.f * PI / RESOLUTION;
-                        glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * state.ball.radius;
-                        glm::vec3 normal = glm::normalize(position);
-                        vertices.push_back({position, normal});
-
-                        if (latitude < RESOLUTION && longitude < RESOLUTION)
-                        {
-                            uint16_t current = static_cast<uint16_t>(verticesOffset + latitude * (RESOLUTION + 1) + longitude);
-                            uint16_t next = static_cast<uint16_t>(current + RESOLUTION + 1);
-                            indices.insert(indices.end(), {current, next, static_cast<uint16_t>(current + 1),
-                                                           static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
-                        }
-                    }
-                }
-                indicesOffsets.push_back(indices.size());
+                Eigen::Vector3f halfSize;
+                std::vector<glm::vec3> points;
+                std::vector<std::pair<std::array<int, 4>, glm::vec3>> faces;
+                int verticesOffset;
 
                 float post = 1;
                 float halfGoalWidth = state.goal.x() / 2.f;
@@ -1299,7 +1510,59 @@ public:
                     {{30, 31, 32, 33}, {0.0f, 0.0f, -1.0f}},
                     {{29, 33, 34, 35}, {0.0f, 0.0f, -1.0f}},
                 };
+                for (const auto &[indices, normal] : faces)
+                {
+                    for (int index : indices)
+                    {
+                        vertices.push_back({points[index], normal});
+                    }
+                }
+                for (uint16_t i = 0; i < faces.size() * 4; i += 4)
+                {
+                    indices.insert(indices.end(), {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3), i});
+                }
+                indicesOffsets.push_back(indices.size());
+
                 verticesOffset = vertices.size();
+                const float PI = glm::pi<float>();
+                constexpr int RESOLUTION = 32;
+                for (int latitude = 0; latitude <= RESOLUTION; ++latitude)
+                {
+                    for (int longitude = 0; longitude <= RESOLUTION; ++longitude)
+                    {
+                        float theta = latitude * PI / RESOLUTION - PI / 2.f;
+                        float phi = longitude * 2.f * PI / RESOLUTION;
+                        glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * state.ball.radius;
+                        glm::vec3 normal = glm::normalize(position);
+                        vertices.push_back({position, normal});
+
+                        if (latitude < RESOLUTION && longitude < RESOLUTION)
+                        {
+                            uint16_t current = static_cast<uint16_t>(verticesOffset + latitude * (RESOLUTION + 1) + longitude);
+                            uint16_t next = static_cast<uint16_t>(current + RESOLUTION + 1);
+                            indices.insert(indices.end(), {current, next, static_cast<uint16_t>(current + 1),
+                                                           static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
+                        }
+                    }
+                }
+                indicesOffsets.push_back(indices.size());
+
+                verticesOffset = vertices.size();
+                halfSize = state.carSize / 2.f;
+                points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
+                           {halfSize.x(), -halfSize.y(), -halfSize.z()},
+                           {halfSize.x(), halfSize.y(), -halfSize.z()},
+                           {-halfSize.x(), halfSize.y(), -halfSize.z()},
+                           {-halfSize.x(), -halfSize.y(), halfSize.z()},
+                           {halfSize.x(), -halfSize.y(), halfSize.z()},
+                           {halfSize.x(), halfSize.y(), halfSize.z()},
+                           {-halfSize.x(), halfSize.y(), halfSize.z()}}};
+                faces = {{{{0, 1, 2, 3}, {0.0f, 0.0f, -1.0f}},
+                          {{4, 5, 6, 7}, {0.0f, 0.0f, 1.0f}},
+                          {{0, 1, 5, 4}, {0.0f, -1.0f, 0.0f}},
+                          {{2, 3, 7, 6}, {0.0f, 1.0f, 0.0f}},
+                          {{0, 3, 7, 4}, {-1.0f, 0.0f, 0.0f}},
+                          {{1, 2, 6, 5}, {1.0f, 0.0f, 0.0f}}}};
                 for (const auto &[indices, normal] : faces)
                 {
                     for (int index : indices)
@@ -1346,74 +1609,165 @@ public:
                 vkFreeMemory(device, stagingBufferMemory, nullptr);
             }
 
-            // create uniform buffers
+            // create hud descriptor pool
             {
-                VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
-                uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-                uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-                uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
-
-                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-                {
-                    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
-
-                    vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
-                }
-            }
-
-            // create descriptor pool
-            {
-                std::array<VkDescriptorPoolSize, 1> poolSizes{};
-                poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+                VkDescriptorPoolSize poolSize{};
+                poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                poolSize.descriptorCount = 1;
 
                 VkDescriptorPoolCreateInfo poolInfo{};
                 poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-                poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-                poolInfo.pPoolSizes = poolSizes.data();
-                poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+                poolInfo.poolSizeCount = 1;
+                poolInfo.pPoolSizes = &poolSize;
+                poolInfo.maxSets = 1;
 
-                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+                if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &hudDescriptorPool) != VK_SUCCESS)
                 {
                     throw std::runtime_error("failed to create descriptor pool!");
                 }
             }
 
-            // create descriptor sets
+            // create hud descriptor sets
             {
-                std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-                VkDescriptorSetAllocateInfo allocInfo{};
-                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                allocInfo.descriptorPool = descriptorPool;
-                allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-                allocInfo.pSetLayouts = layouts.data();
+                int textureWidth, textureHeight, textureChannels;
+                stbi_uc *data = stbi_load("font.png", &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
+                VkDeviceSize imageSize = textureWidth * textureHeight * 4;
 
-                descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-                if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
+                VkImageCreateInfo imageInfo{};
+                imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                imageInfo.imageType = VK_IMAGE_TYPE_2D;
+                imageInfo.extent.width = (uint32_t)textureWidth;
+                imageInfo.extent.height = (uint32_t)textureHeight;
+                imageInfo.extent.depth = 1;
+                imageInfo.mipLevels = 1;
+                imageInfo.arrayLayers = 1;
+                imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+                imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+                imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+                imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+                if (vkCreateImage(device, &imageInfo, nullptr, &fontImage) != VK_SUCCESS)
                 {
-                    throw std::runtime_error("failed to allocate descriptor sets!");
+                    throw std::runtime_error("failed to create image!");
                 }
 
-                for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+                VkMemoryRequirements memRequirements;
+                vkGetImageMemoryRequirements(device, fontImage, &memRequirements);
+
+                VkMemoryAllocateInfo allocInfo{};
+                allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                allocInfo.allocationSize = memRequirements.size;
+                allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+                if (vkAllocateMemory(device, &allocInfo, nullptr, &fontImageMemory) != VK_SUCCESS)
                 {
-                    VkDescriptorBufferInfo bufferInfo{};
-                    bufferInfo.buffer = uniformBuffers[i];
-                    bufferInfo.offset = 0;
-                    bufferInfo.range = sizeof(UniformBufferObject);
-
-                    std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
-
-                    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    descriptorWrites[0].dstSet = descriptorSets[i];
-                    descriptorWrites[0].dstBinding = 0;
-                    descriptorWrites[0].dstArrayElement = 0;
-                    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    descriptorWrites[0].descriptorCount = 1;
-                    descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-                    vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+                    throw std::runtime_error("failed to allocate image memory!");
                 }
+
+                vkBindImageMemory(device, fontImage, fontImageMemory, 0);
+
+                transitionImageLayout(fontImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+                VkBuffer stagingBuffer;
+                VkDeviceMemory stagingBufferMemory;
+                createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+                void *mappedData;
+                vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &mappedData);
+                memcpy(mappedData, data, static_cast<size_t>(imageSize));
+                vkUnmapMemory(device, stagingBufferMemory);
+
+                VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+                VkBufferImageCopy region{};
+                region.bufferOffset = 0;
+                region.bufferRowLength = 0;   // Zero for non-2D images
+                region.bufferImageHeight = 0; // Zero for non-2D images
+                region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.imageSubresource.mipLevel = 0;
+                region.imageSubresource.baseArrayLayer = 0;
+                region.imageSubresource.layerCount = 1;
+                region.imageOffset = {0, 0, 0};
+                region.imageExtent = {(uint32_t)textureWidth, (uint32_t)textureHeight, 1};
+
+                vkCmdCopyBufferToImage(
+                    commandBuffer,
+                    stagingBuffer,
+                    fontImage,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &region);
+
+                endSingleTimeCommands(commandBuffer);
+
+                transitionImageLayout(fontImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+                vkDestroyBuffer(device, stagingBuffer, nullptr);
+                vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+                fontImageView = createImageView(fontImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+
+                VkSamplerCreateInfo samplerInfo{};
+                samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+                samplerInfo.magFilter = VK_FILTER_LINEAR;
+                samplerInfo.minFilter = VK_FILTER_LINEAR;
+                samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.anisotropyEnable = VK_TRUE;
+                samplerInfo.maxAnisotropy = 16;
+                samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+                samplerInfo.unnormalizedCoordinates = VK_FALSE;
+                samplerInfo.compareEnable = VK_FALSE;
+                samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+                samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+                samplerInfo.mipLodBias = 0.0f;
+                samplerInfo.minLod = 0.0f;
+                samplerInfo.maxLod = 0.0f;
+
+                if (vkCreateSampler(device, &samplerInfo, nullptr, &fontSampler) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to create texture sampler!");
+                }
+
+                VkDescriptorSetAllocateInfo descriptorAllocInfo{};
+                descriptorAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                descriptorAllocInfo.descriptorPool = hudDescriptorPool;
+                descriptorAllocInfo.descriptorSetCount = 1;
+                descriptorAllocInfo.pSetLayouts = &hudDescriptorSetLayout;
+
+                if (vkAllocateDescriptorSets(device, &descriptorAllocInfo, &hudDescriptorSet) != VK_SUCCESS)
+                {
+                    throw std::runtime_error("failed to allocate descriptor set!");
+                }
+
+                VkDescriptorImageInfo descriptorImageInfo{};
+                descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                descriptorImageInfo.imageView = fontImageView;
+                descriptorImageInfo.sampler = fontSampler;
+
+                VkWriteDescriptorSet descriptorWrite{};
+                descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrite.dstSet = hudDescriptorSet;
+                descriptorWrite.dstBinding = 0;
+                descriptorWrite.dstArrayElement = 0;
+                descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrite.descriptorCount = 1;
+                descriptorWrite.pImageInfo = &descriptorImageInfo;
+
+                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+                stbi_image_free(data);
+            }
+
+            // hud vertex buffer
+            {
+                VkDeviceSize bufferSize = sizeof(HudVertex) * 13 * 6;
+
+                createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, hudVertexBuffer, hudVertexBufferMemory);
+
+                vkMapMemory(device, hudVertexBufferMemory, 0, bufferSize, 0, &hudMappedData);
             }
 
             // create command buffers
@@ -1456,55 +1810,68 @@ public:
                 }
             }
         }
+
         // main loop
         {
             uint32_t currentFrame = 0;
+            bool ballCam = true;
             std::optional<float> steeringDrift;
+            std::string text{};
             while (!glfwWindowShouldClose(window))
             {
-                bool gamepadExists = false;
-                GLFWgamepadstate gamepadState;
-                glfwPollEvents();
-                if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
+                // actions
                 {
-                    gamepadExists = true;
-                    if (!steeringDrift.has_value())
+                    glfwPollEvents();
+                    if (true) //(state.statesBehind == 0)
                     {
-                        steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                        bool gamepadExists = false;
+                        GLFWgamepadstate gamepadState;
+                        if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState))
+                        {
+                            gamepadExists = true;
+                            if (!steeringDrift.has_value())
+                            {
+                                steeringDrift = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X];
+                            }
+                            state.input.action.throttle = (gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2;
+                            state.input.action.steering = gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift;
+                        }
+                        else
+                        {
+                            state.input.action.throttle = 0.f;
+                            state.input.action.steering = 0.f;
+                        }
+                        if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.input.ballCamPressed)
+                        {
+                            ballCam = !ballCam;
+                            state.input.ballCamPressed = true;
+                        }
+                        else if ((!gamepadExists || gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+                        {
+                            state.input.ballCamPressed = false;
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                        {
+                            state.input.action.throttle = std::min(state.input.action.throttle + 1.f, 1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                        {
+                            state.input.action.throttle = std::max(state.input.action.throttle - 1.f, -1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                        {
+                            state.input.action.steering = std::min(state.input.action.steering + 1.f, 1.f);
+                        }
+                        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+                        {
+                            state.input.action.steering = std::max(state.input.action.steering - 1.f, -1.f);
+                        }
                     }
-                    state.action = {(gamepadState.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] - gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]) / 2, gamepadState.axes[GLFW_GAMEPAD_AXIS_LEFT_X] - *steeringDrift, state.action.ballCamPressed};
                 }
-                else
-                {
-                    state.action = {0.f, 0.f, state.action.ballCamPressed};
-                }
-                if ((((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_PRESS) || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)) && !state.action.ballCamPressed)
-                {
-                    state.ballCam = !state.ballCam;
-                    state.action.ballCamPressed = true;
-                }
-                else if ((gamepadExists && gamepadState.buttons[GLFW_GAMEPAD_BUTTON_Y] == GLFW_RELEASE) && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
-                {
-                    state.action.ballCamPressed = false;
-                }
-                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-                {
-                    state.action.throttle = std::min(state.action.throttle + 1.f, 1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-                {
-                    state.action.throttle = std::max(state.action.throttle - 1.f, -1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-                {
-                    state.action.steering = std::min(state.action.steering + 1.f, 1.f);
-                }
-                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-                {
-                    state.action.steering = std::max(state.action.steering - 1.f, -1.f);
-                }
+                // present
                 {
                     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+                    vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
                     uint32_t imageIndex;
                     VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -1523,16 +1890,17 @@ public:
                     {
                         constexpr float BALLCAM_RADIUS = 8;
                         UniformBufferObject ubo{};
-                        glm::vec3 carPosition = glm::vec3(state.car.objectState.position.x(), state.car.objectState.position.y(), state.car.objectState.position.z());
                         glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
-                        glm::highp_mat4 rotation = glm::rotate(glm::mat4(1.0f), state.car.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.model[0] = glm::translate(glm::mat4(1.0f), carPosition) * rotation;
+                        ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                         ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        ubo.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                        glm::vec3 eye, center;
-                        if (state.ballCam)
+                        for (int i = 0; i < state.players.size(); i++)
                         {
-                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.car.objectState.position.x(), state.car.objectState.position.z());
+                            ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                        }
+                        glm::vec3 eye, center;
+                        if (ballCam)
+                        {
+                            Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.playerId].carState.position.x(), state.players[state.playerId].carState.position.z());
                             Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
                             Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
                             eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
@@ -1540,7 +1908,8 @@ public:
                         }
                         else
                         {
-                            eye = carPosition + glm::mat3(rotation) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
+                            auto carPosition = glm::vec3(state.players[state.playerId].carState.position.x(), state.players[state.playerId].carState.position.y(), state.players[state.playerId].carState.position.z());
+                            eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[state.playerId].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
                             center = carPosition;
                         }
                         ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));
@@ -1550,10 +1919,69 @@ public:
                         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
                     }
 
-                    vkResetFences(device, 1, &inFlightFences[currentFrame]);
+                    // hud
+                    if (state.countdown != 0)
+                    {
+                        const uint64_t countdown = state.transitionCountdown > 0 ? state.transitionCountdown : state.countdown;
+                        std::ostringstream oss;
+                        oss << (uint32_t)state.players[0].score << "  " << countdown / 60 << ":" << std::setw(2) << std::setfill('0') << countdown % 60 << "  " << (uint32_t)state.players[1].score;
+                        const std::string newText = oss.str();
+                        if (newText != text)
+                        {
+                            text = newText;
 
-                    vkResetCommandBuffer(commandBuffers[currentFrame], /*VkCommandBufferResetFlagBits*/ 0);
+                            float textWidth = 0;
+                            for (const char &c : text)
+                            {
+                                textWidth += CHAR_INFO[c - FIRST_CHAR].xadvance;
+                            }
 
+                            constexpr float BOTTOM_PADDING = 20;
+                            const float textWidthPadding = textWidth + 50;
+                            float x = -2.f * textWidthPadding / 2 / swapChainExtent.width, y = -1, height = 2 * (BOTTOM_PADDING + FONT_ASCENT) / swapChainExtent.height, width = 2.f * textWidthPadding / swapChainExtent.width;
+                            std::vector<HudVertex> vertices;
+                            vertices.insert(vertices.begin(), {{{x, y + height}, {0, 0}},
+                                                               {{x, y}, {0, 0}},
+                                                               {{x + width, y}, {0, 0}},
+                                                               {{x, y + height}, {0, 0}},
+                                                               {{x + width, y}, {0, 0}},
+                                                               {{x + width, y + height}, {0, 0}}});
+
+                            float cursor = 0;
+                            for (const char &c : text)
+                            {
+                                const size_t i = c - FIRST_CHAR;
+                                const auto &y0 = CHAR_INFO[i].y0;
+                                const auto &y1 = CHAR_INFO[i].y1;
+                                const auto &x0 = CHAR_INFO[i].x0;
+                                const auto &x1 = CHAR_INFO[i].x1;
+
+                                const float width = 2.f * (x1 - x0) / swapChainExtent.width;
+                                const float height = 2.f * (y1 - y0) / swapChainExtent.height;
+                                const float y = 2.f * (FONT_ASCENT + CHAR_INFO[i].yoff) / swapChainExtent.height - 1;
+                                const float x = 2.f * (cursor + CHAR_INFO[i].xoff - textWidth / 2) / swapChainExtent.width;
+
+                                const float y0Normalized = (float)y0 / ATLAS_HEIGHT;
+                                const float y1Normalized = (float)y1 / ATLAS_HEIGHT;
+                                const float x0Normalized = (float)x0 / ATLAS_WIDTH;
+                                const float x1Normalized = (float)x1 / ATLAS_WIDTH;
+
+                                vertices.insert(vertices.end(), {{{x, y + height}, {x0Normalized, y1Normalized}},
+                                                                 {{x, y}, {x0Normalized, y0Normalized}},
+                                                                 {{x + width, y}, {x1Normalized, y0Normalized}},
+                                                                 {{x, y + height}, {x0Normalized, y1Normalized}},
+                                                                 {{x + width, y}, {x1Normalized, y0Normalized}},
+                                                                 {{x + width, y + height}, {x1Normalized, y1Normalized}}});
+                                cursor += CHAR_INFO[i].xadvance;
+                            }
+
+                            memcpy(hudMappedData, vertices.data(), (size_t)sizeof(vertices[0]) * vertices.size());
+                        }
+                    }
+                    else
+                        text = "";
+
+                    vkResetCommandBuffer(commandBuffers[currentFrame], 0);
                     // record command buffer
                     {
                         VkCommandBuffer commandBuffer = commandBuffers[currentFrame];
@@ -1598,35 +2026,52 @@ public:
                         scissor.extent = swapChainExtent;
                         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-                        VkBuffer vertexBuffers[] = {vertexBuffer};
-                        VkDeviceSize offsets[] = {0};
-                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                        VkDeviceSize offset = 0;
+                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
 
                         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
                         vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
                         uint index = 0;
-
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-
                         vkCmdDrawIndexed(commandBuffer, indicesOffsets[0], 1, 0, 0, 0);
 
-                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[0] * 2, VK_INDEX_TYPE_UINT16);
-
                         index = 1;
-
                         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, indicesOffsets[0], 0, 0);
 
-                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[1] - indicesOffsets[0], 1, 0, 0, 0);
+                        for (int i = 0; i < state.players.size(); i++)
+                        {
+                            index = 2 + i;
+                            vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                            vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, indicesOffsets[1], 0, 0);
+                        }
 
-                        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indicesOffsets[1] * 2, VK_INDEX_TYPE_UINT16);
+                        vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-                        index = 2;
+                        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline);
 
-                        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                        offset = 0;
+                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &hudVertexBuffer, &offset);
 
-                        vkCmdDrawIndexed(commandBuffer, indicesOffsets[2] - indicesOffsets[1], 1, 0, 0, 0);
+                        vkCmdBindDescriptorSets(
+                            commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            hudPipelineLayout,
+                            0,
+                            1,
+                            &hudDescriptorSet,
+                            0,
+                            nullptr);
+
+                        if (!text.empty())
+                        {
+                            for (int i = 0; i < text.size() + 1; i++)
+                            {
+                                vkCmdDraw(commandBuffer, 6, 1, i * 6, 0);
+                            }
+                        }
 
                         vkCmdEndRenderPass(commandBuffer);
 
@@ -1639,18 +2084,16 @@ public:
                     VkSubmitInfo submitInfo{};
                     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-                    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-                    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+                    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
                     submitInfo.waitSemaphoreCount = 1;
-                    submitInfo.pWaitSemaphores = waitSemaphores;
-                    submitInfo.pWaitDstStageMask = waitStages;
+                    submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
+                    submitInfo.pWaitDstStageMask = &waitStage;
 
                     submitInfo.commandBufferCount = 1;
                     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
-                    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
                     submitInfo.signalSemaphoreCount = 1;
-                    submitInfo.pSignalSemaphores = signalSemaphores;
+                    submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
 
                     if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS)
                     {
@@ -1659,18 +2102,13 @@ public:
 
                     VkPresentInfoKHR presentInfo{};
                     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
                     presentInfo.waitSemaphoreCount = 1;
-                    presentInfo.pWaitSemaphores = signalSemaphores;
-
-                    VkSwapchainKHR swapChains[] = {swapChain};
+                    presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
                     presentInfo.swapchainCount = 1;
-                    presentInfo.pSwapchains = swapChains;
-
+                    presentInfo.pSwapchains = &swapChain;
                     presentInfo.pImageIndices = &imageIndex;
 
                     result = vkQueuePresentKHR(presentQueue, &presentInfo);
-
                     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
                     {
                         framebufferResized = false;
@@ -1690,7 +2128,7 @@ public:
 
         // cleanup
         {
-            state.action.close = true;
+            state.input.close = true;
             cleanupSwapChain();
 
             vkDestroyPipeline(device, graphicsPipeline, nullptr);
@@ -1720,6 +2158,17 @@ public:
                 vkDestroyFence(device, inFlightFences[i], nullptr);
             }
 
+            vkDestroySampler(device, fontSampler, nullptr);
+            vkFreeMemory(device, fontImageMemory, nullptr);
+            vkDestroyImage(device, fontImage, nullptr);
+            vkDestroyImageView(device, fontImageView, nullptr);
+            vkDestroyDescriptorPool(device, hudDescriptorPool, nullptr);
+            vkDestroyDescriptorSetLayout(device, hudDescriptorSetLayout, nullptr);
+            vkDestroyPipeline(device, hudPipeline, nullptr);
+            vkDestroyPipelineLayout(device, hudPipelineLayout, nullptr);
+            vkDestroyBuffer(device, hudVertexBuffer, nullptr);
+            vkFreeMemory(device, hudVertexBufferMemory, nullptr);
+
             vkDestroyCommandPool(device, commandPool, nullptr);
 
             vkDestroyDevice(device, nullptr);
@@ -1743,29 +2192,109 @@ public:
     }
 };
 
-int main()
+static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
-    State state{
-        {{{0.0f, 10.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         {100.0f, 20.0f, 200.0f}},
-        {{{0.0f, 0.375f, -5.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         {1.25f, 0.75f, 2.f}},
-        {{{0.0f, 1.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f},
-          {0.0f, 0.0f, 0.0f}},
-         1.0f},
-        {20.0, 8.0},
-        {0.0f, 0.0f, false, false},
-        true};
+    ((std::string *)userp)->append((char *)contents, size * nmemb);
+    return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " servers or "  << argv[0] << " <IP Address> <Port>\n" << std::endl;
+
+    State state = {
+        .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
+                                  .velocity = {0.0f, 0.0f, 0.0f},
+                                  .orientation = {0.0f, 0.0f, 0.0f}},
+                  .size = arenaSize},
+        .goal = goal,
+        .ball = initialBall,
+        .carSize = carSize,
+        .players = {initialPlayers[0]},
+        .countdown = 0,
+        .transitionCountdown = 0,
+        .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false, .close = false},
+    };
+    std::optional<sockaddr_in6> serverAddress;
+
+    if (argc == 2 && std::string(argv[1]) == "servers" || argc == 3)
+    {
+
+        std::string address, port;
+        if (argc == 3)
+        {
+            address = argv[1];
+            port = argv[2];
+        }
+        else if (argc == 2)
+        {
+            CURL *curl;
+            curl_global_init(CURL_GLOBAL_DEFAULT);
+            curl = curl_easy_init();
+            if (curl)
+            {
+                std::string response;
+                curl_easy_setopt(curl, CURLOPT_URL, "http://hacker-league.molyz.app:8080/servers");
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                CURLcode code = curl_easy_perform(curl);
+                if (code != CURLE_OK)
+                {
+                    std::cerr << "cURL error: " << curl_easy_strerror(code) << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                nlohmann::json servers = nlohmann::json::parse(response);
+
+                std::cout << "Servers (Address, Port, Current Number of Players)" << std::endl;
+                for (int i = 0; i < servers.size(); i++)
+                {
+                    std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << ", " << std::string(servers[i]["nPlayers"]) << std::endl;
+                }
+                std::cout << "\nEnter the number of the server you want to choose: ";
+                int choice;
+                std::cin >> choice;
+
+                if (choice < 1 || choice > servers.size())
+                {
+                    std::cerr << "Invalid choice." << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                if (std::stoi(std::string(servers[choice - 1]["nPlayers"])) > 1)
+                {
+                    std::cerr << "Server is full. Already 2 players on server." << std::endl;
+                    return EXIT_FAILURE;
+                }
+
+                address = servers[choice - 1]["address"];
+                port = servers[choice - 1]["port"];
+
+                curl_easy_cleanup(curl);
+            }
+            curl_global_cleanup();
+        }
+
+        serverAddress = sockaddr_in6{};
+        serverAddress->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, address.c_str(), &serverAddress->sin6_addr);
+        serverAddress->sin6_port = htons(std::stoi(port));
+        state.players.push_back(initialPlayers[1]);
+    }
+    else if (argc != 1)
+    {
+        std::cerr << "error wrong number of arguments" << std::endl;
+        return EXIT_FAILURE;
+    }
+    std::vector<Player> initialPlayers = state.players;
+
     InputGraphics inputGraphics(state);
+
     try
     {
         std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
-        std::thread physicsThread(&physics, std::ref(state));
+        std::thread physicsThread(&physics, std::ref(state), std::ref(initialPlayers), std::ref(serverAddress));
         inputGraphicsThread.join();
         physicsThread.join();
     }

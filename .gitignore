@@ -1,6 +1,10 @@
 .vscode
 *.spv
 *.spv.h
+font.h
+font
 glslc
 hacker-league
-gamepad.txt
+server
+*.db
+addresses_server

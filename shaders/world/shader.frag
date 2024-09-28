@@ -7,6 +7,8 @@ layout(location = 2) flat in uint index;
 layout(location = 0) out vec4 color;
 
 void main() {
+    vec3 player0Color = vec3(0.0, 1.0, 1.0);
+    vec3 player1Color = vec3(1.0, 0.0, 1.0);
     uint stripe = 10;
     vec3 lightPosition = vec3(0.0, 20.0, 0.0);
     vec3 lightColor = vec3(1.0, 1.0, 1.0);
@@ -18,22 +20,26 @@ void main() {
 
     vec3 color3d;
     if (index == 0) {
-        if (position.z > 0.5) {
-            color3d = vec3(0.0, 1.0, 1.0);
-        } else {
-            color3d = vec3(0.05, 0.05, 0.05);
-        }
-    } else if (index == 1) {
-        color3d = vec3(1.0, 1.0, 1.0);
-    } else if (index == 2) {
-        if (normal.y > 0.5) {
+        if (normal.y < -0.5) {
+            color3d = vec3(0.03, 0.03, 0.03);
+        } else if (normal.y > 0.5) {
             if (int(floor(position.z / stripe)) % 2 == 0) {
                 color3d = vec3(0.0, 0.4, 0.0);
             } else {
                 color3d = vec3(0.0, 0.5, 0.0);
             }
+        } else if (normal.z < -0.5) {
+            color3d = player1Color;
+        } else if (normal.z > 0.5) {
+            color3d = player0Color;
+        }
+    } else if (index == 1) {
+        color3d = vec3(1.0, 1.0, 1.0);
+    } else { 
+        if (position.z > 0.5) {
+            color3d = index == 2 ? player0Color : player1Color;
         } else {
-            color3d = vec3(0.0, 1.0, 1.0);
+            color3d = vec3(0.05, 0.05, 0.05);
         }
     }
 
