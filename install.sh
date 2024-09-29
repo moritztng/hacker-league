@@ -14,7 +14,7 @@ if [[ "$BINARIES" == "game" || "$BINARIES" == "both" ]]; then
     cd hacker-league
     curl -L -o "$BINARY_NAME" "https://github.com/moritztng/hacker-league/releases/latest/download/$BINARY_NAME"
     chmod +x "$BINARY_NAME"
-    curl -L -o "gamepad.txt" "https://raw.githubusercontent.com/moritztng/hacker-league/refs/heads/main/gamepad.txt"
+    curl -L -O "https://raw.githubusercontent.com/moritztng/hacker-league/refs/heads/main/{gamepad.txt,font.png}"
 fi
 if [[ "$BINARIES" == "server" || "$BINARIES" == "both" ]]; then
     BINARY_NAME="server"
