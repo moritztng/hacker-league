@@ -112,8 +112,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
         }
         else
         {
-            players[state.playerId].action = records[stateId % N_RECORDS].action;
-            players[state.playerId].carState = records[stateId % N_RECORDS].carState;
+            players[state.playerId] = records[stateId % N_RECORDS];
         }
 
         if (multiplayer)
@@ -153,8 +152,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                         records[stateId % N_RECORDS] = initialPlayers[state.playerId];
                     }
 
-                    players[state.playerId].action = records[serverId % N_RECORDS].action;
-                    players[state.playerId].carState = records[serverId % N_RECORDS].carState;
+                    players[state.playerId] = records[serverId % N_RECORDS];
                     statesBehind = stateId - serverId;
                     stateId = serverId;
                 }
