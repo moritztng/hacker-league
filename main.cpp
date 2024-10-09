@@ -117,9 +117,9 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
 
         if (multiplayer)
         {
-            char buffer[102];
             if (statesBehind == 0)
             {
+                char buffer[102];
                 std::memcpy(buffer, &stateId, 4);
                 std::memcpy(buffer + 4, players[state.playerId].carState.position.data(), 12);
                 std::memcpy(buffer + 16, players[state.playerId].carState.velocity.data(), 12);
@@ -149,12 +149,14 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                     // TODO: fix countdown and score latency
                     if (state.transitionCountdown > 0)
                     {
-                        records[stateId % N_RECORDS] = initialPlayers[state.playerId];
+                        players[state.playerId] = initialPlayers[state.playerId];
                     }
-
-                    players[state.playerId] = records[serverId % N_RECORDS];
-                    statesBehind = stateId - serverId;
-                    stateId = serverId;
+                    else
+                    {
+                        players[state.playerId] = records[serverId % N_RECORDS];
+                        statesBehind = stateId - serverId;
+                        stateId = serverId;
+                    }
                 }
             }
             else
