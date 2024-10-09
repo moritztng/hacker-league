@@ -31,20 +31,17 @@ struct Player
 {
     ObjectState carState;
     Action action;
-    uint8_t score;
 };
 
 const std::vector<Player> initialPlayers = {
     Player{.carState = {.position = {0.0f, 0.375f, -40.0f},
                         .velocity = {0.0f, 0.0f, 0.0f},
                         .orientation = {0.0f, 0.0f, 0.0f}},
-           .action = {.throttle = 0.0f, .steering = 0.0f},
-           .score = 0},
+           .action = {.throttle = 0.0f, .steering = 0.0f}},
     Player{.carState = {.position = {0.0f, 0.375f, 40.0f},
                         .velocity = {0.0f, 0.0f, 0.0f},
                         .orientation = {0.0f, PI, 0.0f}},
-           .action = {.throttle = 0.0f, .steering = 0.0f},
-           .score = 0},
+           .action = {.throttle = 0.0f, .steering = 0.0f}},
 };
 const Sphere initialBall = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
                                             .velocity = {0.0f, 0.0f, 0.0f},
@@ -54,7 +51,7 @@ const Eigen::Vector2f goal = {20.0, 8.0};
 const Eigen::Vector3f carSize = {1.25f, 0.75f, 2.f};
 const Eigen::Vector3f arenaSize = {100.0f, 20.0f, 200.0f};
 
-void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals)
+void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals, uint8_t scores[2] = nullptr)
 {
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
@@ -79,7 +76,7 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         {halfCarSize.x(), -halfCarSize.z()},
         {-halfCarSize.x(), halfCarSize.z()},
         {halfCarSize.x(), halfCarSize.z()}};
-    for (auto &[carState, action, _] : players)
+    for (auto &[carState, action] : players)
     {
         Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
         carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
@@ -185,7 +182,10 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
     // goal
     if (detectGoals && abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
     {
-        players[ball.objectState.position.z() < 0 ? 1 : 0].score += 1;
+        if (scores != nullptr)
+        {
+            scores[ball.objectState.position.z() < 0 ? 1 : 0] += 1;
+        }
         ball.objectState.position.setZero();
         ball.objectState.velocity.setZero();
     }
@@ -206,7 +206,7 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         }
     }
 
-    for (auto &[carState, _0, _1] : players)
+    for (auto &[carState, _] : players)
         carState.position += carState.velocity * PERIOD;
     ball.objectState.position += ball.objectState.velocity * PERIOD;
 }

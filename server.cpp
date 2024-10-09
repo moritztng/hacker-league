@@ -189,6 +189,7 @@ int main(int argc, char *argv[])
 
     Sphere ball = initialBall;
     std::vector<Player> players = initialPlayers;
+    uint8_t scores[2];
 
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
@@ -216,8 +217,8 @@ int main(int argc, char *argv[])
                 startTime = currentTime + 5;
                 transitionTime = currentTime;
                 ball = initialBall;
-                players[0].score = 0;
-                players[1].score = 0;
+                scores[0] = 0;
+                scores[1] = 0;
             }
         }
         else
@@ -275,14 +276,13 @@ int main(int argc, char *argv[])
             std::memcpy(buffer + 72, ball.objectState.orientation.data(), 12);
             std::memcpy(buffer + 84, &countdown, 8);
             std::memcpy(buffer + 92, &transitionCountdown, 8);
-            std::memcpy(buffer + 100, &players[0].score, 1);
-            std::memcpy(buffer + 101, &players[1].score, 1);
+            std::memcpy(buffer + 100, &scores, 2);
             sendto(udpSocket, buffer, sizeof(buffer), 0, (sockaddr *)address, sizeof(*address));
         }
 
-        const uint8_t scores[2] = {players[0].score, players[1].score};
-        physicsStep(arenaSize, goal, ball, carSize, players, true);
-        if (players[0].score != scores[0] || players[1].score != scores[1])
+        const uint8_t oldScore = scores[0] + scores[1];
+        physicsStep(arenaSize, goal, ball, carSize, players, true, scores);
+        if (scores[0] + scores[1] != oldScore)
         {
             transitionTime = currentTime;
             startTime += 5;

@@ -46,6 +46,7 @@ struct State
     Sphere ball;
     Eigen::Vector3f carSize;
     std::vector<Player> players;
+    std::optional<std::array<uint8_t, 2>> scores;
     uint8_t playerId;
     int64_t countdown;
     int64_t transitionCountdown;
@@ -144,8 +145,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                     std::memcpy(ball.objectState.orientation.data(), buffer + 72, 12);
                     std::memcpy(&state.countdown, buffer + 84, 8);
                     std::memcpy(&state.transitionCountdown, buffer + 92, 8);
-                    std::memcpy(&players[0].score, buffer + 100, 1);
-                    std::memcpy(&players[1].score, buffer + 101, 1);
+                    std::memcpy(&state.scores, buffer + 100, 2);
 
                     // TODO: fix countdown and score latency
                     if (state.transitionCountdown > 0)
@@ -1924,7 +1924,7 @@ public:
                     {
                         const uint64_t countdown = state.transitionCountdown > 0 ? state.transitionCountdown : state.countdown;
                         std::ostringstream oss;
-                        oss << (uint32_t)state.players[0].score << "  " << countdown / 60 << ":" << std::setw(2) << std::setfill('0') << countdown % 60 << "  " << (uint32_t)state.players[1].score;
+                        oss << (uint32_t)(*state.scores)[0] << "  " << countdown / 60 << ":" << std::setw(2) << std::setfill('0') << countdown % 60 << "  " << (uint32_t)(*state.scores)[1];
                         const std::string newText = oss.str();
                         if (newText != text)
                         {
@@ -2200,7 +2200,8 @@ static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *use
 
 int main(int argc, char *argv[])
 {
-    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " servers or "  << argv[0] << " <IP Address> <Port>\n" << std::endl;
+    std::cout << "Usage\nSingleplayer: " << argv[0] << "\nMultiplayer: " << argv[0] << " servers or " << argv[0] << " <IP Address> <Port>\n"
+              << std::endl;
 
     State state = {
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
@@ -2281,6 +2282,7 @@ int main(int argc, char *argv[])
         inet_pton(AF_INET6, address.c_str(), &serverAddress->sin6_addr);
         serverAddress->sin6_port = htons(std::stoi(port));
         state.players.push_back(initialPlayers[1]);
+        state.scores = {};
     }
     else if (argc != 1)
     {
