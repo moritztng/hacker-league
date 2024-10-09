@@ -165,7 +165,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             }
         }
 
-        physicsStep(state.arena.size, state.goal, ball, state.carSize, players, false);
+        physicsStep(state.arena.size, state.goal, ball, state.carSize, players, !multiplayer);
 
         if (statesBehind == 0)
         {

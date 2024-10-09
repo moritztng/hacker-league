@@ -47,14 +47,14 @@ const std::vector<Player> initialPlayers = {
            .score = 0},
 };
 const Sphere initialBall = {.objectState = {.position = {0.0f, 1.0f, 0.0f},
-                                      .velocity = {0.0f, 0.0f, 0.0f},
-                                      .orientation = {0.0f, 0.0f, 0.0f}},
-                      .radius = 1.0f};
+                                            .velocity = {0.0f, 0.0f, 0.0f},
+                                            .orientation = {0.0f, 0.0f, 0.0f}},
+                            .radius = 1.0f};
 const Eigen::Vector2f goal = {20.0, 8.0};
 const Eigen::Vector3f carSize = {1.25f, 0.75f, 2.f};
 const Eigen::Vector3f arenaSize = {100.0f, 20.0f, 200.0f};
 
-void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool updateScore)
+void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals)
 {
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
@@ -183,13 +183,9 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         ball.objectState.velocity.z() *= -BALL_RESTITUTION;
     }
     // goal
-    if (abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
+    if (detectGoals && abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
     {
-        if (updateScore)
-        {
-            players[ball.objectState.position.z() < 0 ? 1 : 0].score += 1;
-        }
-
+        players[ball.objectState.position.z() < 0 ? 1 : 0].score += 1;
         ball.objectState.position.setZero();
         ball.objectState.velocity.setZero();
     }
