@@ -39,7 +39,6 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
             int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddress, &clientAddressLength);
             if (recvLength == 0)
             {
-                // TODO: catch exceptions
                 throw std::runtime_error("receiving input");
             }
 
@@ -223,12 +222,13 @@ int main(int argc, char *argv[])
         constexpr uint8_t QUEUE_MAX = 10;
         constexpr uint8_t QUEUE_TARGET = (QUEUE_MIN + QUEUE_MAX) / 2;
 
+        constexpr uint8_t MAX_TIME_CLIENT_IDLE = 5;
+
         int64_t startTime = 0;
         int64_t transitionTime = 0;
 
         const auto period = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::duration<float>(PERIOD));
         auto targetTime = std::chrono::high_resolution_clock::now();
-        // TODO: proper signal handling
         while (running)
         {
             const int64_t currentTime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
             clients.erase(std::remove_if(clients.begin(), clients.end(),
                                          [](const Client &client)
                                          {
-                                             return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - client.lastUpdate).count() > 5;
+                                             return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - client.lastUpdate).count() > MAX_TIME_CLIENT_IDLE;
                                          }),
                           clients.end());
 
@@ -325,5 +325,5 @@ int main(int argc, char *argv[])
         receiveThread->join();
     if (udpSocket > -1)
         close(udpSocket);
-    return EXIT_FAILURE;
+    return EXIT_SUCCESS;
 }

@@ -51,6 +51,9 @@ const Eigen::Vector2f goal = {20.0, 8.0};
 const Eigen::Vector3f carSize = {1.25f, 0.75f, 2.f};
 const Eigen::Vector3f arenaSize = {100.0f, 20.0f, 200.0f};
 
+
+
+// TODO: lots of low hanging fruit to make it more efficient
 void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals, uint8_t scores[2] = nullptr)
 {
     constexpr uint FREQUENCY = 60;

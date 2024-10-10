@@ -53,15 +53,12 @@ struct State
     bool running;
 };
 
-// TODO: lots of low hanging fruit to make it more efficient, sync with graphics
 void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in6> &serverAddress)
 {
     int udpSocket = -1;
     try
     {
         bool multiplayer = serverAddress.has_value();
-
-        int udpSocket;
         if (multiplayer)
         {
             udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
