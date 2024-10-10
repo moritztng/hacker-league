@@ -2205,8 +2205,8 @@ int main(int argc, char *argv[])
 
     State state = {
         .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
-                                  .velocity = {0.0f, 0.0f, 0.0f},
-                                  .orientation = {0.0f, 0.0f, 0.0f}},
+                                  .velocity = {},
+                                  .orientation = {}},
                   .size = arenaSize},
         .goal = goal,
         .ball = initialBall,
