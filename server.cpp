@@ -1,6 +1,5 @@
 #include <iostream>
 #include <vector>
-#include <eigen3/Eigen/Dense>
 
 #include <thread>
 #include <chrono>
@@ -214,7 +213,7 @@ int main(int argc, char *argv[])
         {
             if (currentTime - startTime > GAME_DURATION)
             {
-                startTime = currentTime + 5;
+                startTime = currentTime + TRANSITION_DURATION;
                 transitionTime = currentTime;
                 ball = initialBall;
                 scores[0] = 0;
@@ -240,15 +239,14 @@ int main(int argc, char *argv[])
             {
                 regulateQueue = true;
             }
-            else if (queue.size() == (QUEUE_MIN + QUEUE_MAX) / 2)
+            else if (queue.size() == QUEUE_TARGET)
             {
                 regulateQueue = false;
             }
             if (!regulateQueue || queue.size() > QUEUE_MAX)
             {
                 const Input &input = queue.front();
-                players[playerId].action = input.player.action;
-                players[playerId].carState = input.player.carState;
+                players[playerId] = input.player;
                 clientPlayerInputIds.push_back({&address, playerId, input.id});
                 for (int i = 0; i < (regulateQueue ? queue.size() - QUEUE_TARGET : 1); i++)
                     queue.pop();
@@ -285,7 +283,7 @@ int main(int argc, char *argv[])
         if (scores[0] + scores[1] != oldScore)
         {
             transitionTime = currentTime;
-            startTime += 5;
+            startTime += TRANSITION_DURATION;
         }
 
         targetTime += period;
