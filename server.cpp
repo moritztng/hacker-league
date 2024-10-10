@@ -123,14 +123,19 @@ void publishServerAddress(std::string address, uint16_t port, std::vector<Client
             time = 0;
             lastNPlayers = clients.size();
 
-            const std::string body = address + " " + std::to_string(port) + " " + std::to_string(clients.size());
-            std::string httpRequest = "POST /publish HTTP/1.1\r\n"
-                                      "Host: " +
-                                      addressesServerAddress + "\r\n"
-                                                               "Content-Type: text/plain\r\n"
-                                                               "Content-Length: " +
-                                      std::to_string(body.size()) + "\r\n\r\n" +
-                                      body;
+            std::ostringstream bodyStream;
+            bodyStream << "{ \"address\": \"" << address << "\", "
+                       << "\"port\": " << port << ", "
+                       << "\"nPlayers\": " << clients.size() << " }";
+            std::string body = bodyStream.str();
+
+            std::ostringstream httpRequestStream;
+            httpRequestStream << "POST /publish HTTP/1.1\r\n"
+                              << "Host: " << addressesServerAddress << "\r\n"
+                              << "Content-Type: application/json\r\n"
+                              << "Content-Length: " << body.size() << "\r\n\r\n"
+                              << body;
+            std::string httpRequest = httpRequestStream.str();
 
             tcpSocket = socket(AF_INET, SOCK_STREAM, 0);
             if (tcpSocket < 0)
@@ -312,7 +317,6 @@ int main(int argc, char *argv[])
     catch (const std::exception &e)
     {
         std::cerr << "error: " << e.what() << std::endl;
-
     }
     running = false;
     if (tcpThread)

@@ -4,10 +4,10 @@ CXXFLAGS = -std=c++17 -O3
 
 all: debug
 
-debug: hacker-league server addresses_server
+debug: hacker-league server
 
 release: CXXFLAGS += -DNDEBUG
-release: hacker-league server addresses_server
+release: hacker-league server
 
 hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png
 	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread -lcurl
@@ -29,8 +29,5 @@ shaders/hud/%.spv.h: shaders/hud/shader.%
 server: server.cpp common.h
 	g++ $(CXXFLAGS) -o server server.cpp -lpthread
 
-addresses_server: addresses_server.cpp
-	g++ $(CXXFLAGS) -o addresses_server addresses_server.cpp -lsqlite3
-
 clean:
-	rm -f hacker-league font font.h font.png server addresses_server shaders/*/*spv*
+	rm -f hacker-league font font.h font.png server shaders/*/*spv*

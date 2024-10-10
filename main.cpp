@@ -2264,7 +2264,7 @@ int main(int argc, char *argv[])
                     std::cout << "Servers (Address, Port, Current Number of Players)" << std::endl;
                     for (int i = 0; i < servers.size(); i++)
                     {
-                        std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << ", " << std::string(servers[i]["nPlayers"]) << std::endl;
+                        std::cout << i + 1 << ") " << std::string(servers[i]["address"]) << ", " << std::string(servers[i]["port"]) << ", " << servers[i]["nPlayers"] << std::endl;
                     }
                     std::cout << "\nEnter the number of the server you want to choose: ";
                     int choice;
@@ -2275,7 +2275,7 @@ int main(int argc, char *argv[])
                         throw std::runtime_error("invalid server choice");
                     }
 
-                    if (std::stoi(std::string(servers[choice - 1]["nPlayers"])) > 1)
+                    if (servers[choice - 1]["nPlayers"] > 1)
                     {
                         throw std::runtime_error("server is full. already 2 players on server.");
                     }
