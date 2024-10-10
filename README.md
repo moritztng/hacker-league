@@ -52,5 +52,5 @@ chmod +x ./shaders/glslc
 make debug
 ```
 ## Community
-- Discord Server: https://discord.gg/BbNH27st
+- Discord Server: https://discord.gg/bD2saQqdTG
 - I build in public on X: https://x.com/moritzthuening
