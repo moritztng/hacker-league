@@ -216,9 +216,7 @@ int main(int argc, char *argv[])
 
         constexpr uint16_t GAME_DURATION = 300;
         constexpr uint16_t TRANSITION_DURATION = 5;
-        constexpr uint8_t QUEUE_MIN = 1;
-        constexpr uint8_t QUEUE_MAX = 10;
-        constexpr uint8_t QUEUE_TARGET = (QUEUE_MIN + QUEUE_MAX) / 2;
+        constexpr uint8_t QUEUE_MAX = 3;
 
         constexpr uint8_t MAX_TIME_CLIENT_IDLE = 5;
 
@@ -257,21 +255,12 @@ int main(int argc, char *argv[])
             std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
             for (auto &[address, queue, regulateQueue, playerId, _] : clients)
             {
-                if (queue.size() < QUEUE_MIN || queue.size() > QUEUE_MAX)
-                {
-                    regulateQueue = true;
-                }
-                else if (queue.size() == QUEUE_TARGET)
-                {
-                    regulateQueue = false;
-                }
-                if (!regulateQueue || queue.size() > QUEUE_MAX)
+                if (!queue.empty())
                 {
                     const Input &input = queue.front();
                     players[playerId] = input.player;
                     clientPlayerInputIds.push_back({&address, playerId, input.id});
-                    for (int i = 0; i < (regulateQueue ? queue.size() - QUEUE_TARGET : 1); i++)
-                        queue.pop();
+                    queue.pop();
                 }
             }
 
@@ -309,7 +298,17 @@ int main(int argc, char *argv[])
             }
 
             targetTime += period;
-            std::this_thread::sleep_until(targetTime);
+            bool queueTooLong = false;
+            for (auto &client : clients)
+            {
+                if (client.queue.size() > QUEUE_MAX)
+                {
+                    queueTooLong = true;
+                    break;
+                }
+            }
+            if (!queueTooLong)
+                std::this_thread::sleep_until(targetTime);
         }
     }
     catch (const std::exception &e)
