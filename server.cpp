@@ -253,6 +253,7 @@ int main(int argc, char *argv[])
                           clients.end());
 
             std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
+            bool queueTooLong = false;
             for (auto &[address, queue, regulateQueue, playerId, _] : clients)
             {
                 if (!queue.empty())
@@ -261,6 +262,8 @@ int main(int argc, char *argv[])
                     players[playerId] = input.player;
                     clientPlayerInputIds.push_back({&address, playerId, input.id});
                     queue.pop();
+                } else if (queue.size() > QUEUE_MAX) {
+                    queueTooLong = true;
                 }
             }
 
@@ -296,16 +299,7 @@ int main(int argc, char *argv[])
                 transitionTime = currentTime;
                 startTime += TRANSITION_DURATION;
             }
-
-            bool queueTooLong = false;
-            for (auto &client : clients)
-            {
-                if (client.queue.size() > QUEUE_MAX)
-                {
-                    queueTooLong = true;
-                    break;
-                }
-            }
+            
             if (!queueTooLong) {
                 targetTime += period;
                 std::this_thread::sleep_until(targetTime);
