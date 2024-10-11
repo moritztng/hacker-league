@@ -297,7 +297,6 @@ int main(int argc, char *argv[])
                 startTime += TRANSITION_DURATION;
             }
 
-            targetTime += period;
             bool queueTooLong = false;
             for (auto &client : clients)
             {
@@ -307,8 +306,10 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
-            if (!queueTooLong)
+            if (!queueTooLong) {
+                targetTime += period;
                 std::this_thread::sleep_until(targetTime);
+            }
         }
     }
     catch (const std::exception &e)
