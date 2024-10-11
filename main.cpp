@@ -53,7 +53,7 @@ struct State
     bool running;
 };
 
-void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in6> &serverAddress)
+void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in> &serverAddress)
 {
     int udpSocket = -1;
     try
@@ -61,7 +61,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
         bool multiplayer = serverAddress.has_value();
         if (multiplayer)
         {
-            udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
+            udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
             if (udpSocket < 0)
             {
                 throw std::runtime_error("creating udp socket");
@@ -2227,7 +2227,7 @@ int main(int argc, char *argv[])
             .input = {.action = {.throttle = 0.0f, .steering = 0.0f}, .ballCamPressed = false},
             .running = true,
         };
-        std::optional<sockaddr_in6> serverAddress;
+        std::optional<sockaddr_in> serverAddress;
 
         if (argc == 2 && std::string(argv[1]) == "servers" || argc == 3)
         {
@@ -2285,13 +2285,13 @@ int main(int argc, char *argv[])
                 curl_global_cleanup();
             }
 
-            serverAddress = sockaddr_in6{};
-            serverAddress->sin6_family = AF_INET6;
-            if (inet_pton(AF_INET6, address.c_str(), &serverAddress->sin6_addr) < 0)
+            serverAddress = sockaddr_in{};
+            serverAddress->sin_family = AF_INET;
+            if (inet_pton(AF_INET, address.c_str(), &serverAddress->sin_addr) < 0)
             {
                 throw std::runtime_error("invalid ipv6 address or unsupported address family");
             }
-            serverAddress->sin6_port = htons(std::stoi(port));
+            serverAddress->sin_port = htons(std::stoi(port));
             state.players.push_back(initialPlayers[1]);
             state.scores = {};
         }

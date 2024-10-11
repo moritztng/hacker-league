@@ -20,7 +20,7 @@ struct Input
 
 struct Client
 {
-    sockaddr_in6 address;
+    sockaddr_in address;
     std::queue<Input> queue;
     bool regulateQueue;
     size_t playerId;
@@ -34,7 +34,7 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
         while (running)
         {
             char buffer[48];
-            struct sockaddr_in6 clientAddress;
+            struct sockaddr_in clientAddress;
             socklen_t clientAddressLength = sizeof(clientAddress);
             int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddress, &clientAddressLength);
             if (recvLength == 0)
@@ -184,18 +184,16 @@ int main(int argc, char *argv[])
             throw std::runtime_error("wrong number of arguments");
         }
 
-        udpSocket = socket(AF_INET6, SOCK_DGRAM, 0);
+        udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
         if (udpSocket < 0)
         {
             throw std::runtime_error("creating udp socket");
         }
-        int opt = 0;
-        setsockopt(udpSocket, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
 
-        struct sockaddr_in6 serverAddress = {};
-        serverAddress.sin6_family = AF_INET6;
-        serverAddress.sin6_addr = in6addr_any;
-        serverAddress.sin6_port = htons(std::stoi(argv[1]));
+        struct sockaddr_in serverAddress = {};
+        serverAddress.sin_family = AF_INET;
+        serverAddress.sin_addr.s_addr = INADDR_ANY;
+        serverAddress.sin_port = htons(std::stoi(argv[1]));
 
         if (bind(udpSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0)
         {
@@ -256,7 +254,7 @@ int main(int argc, char *argv[])
                                          }),
                           clients.end());
 
-            std::vector<std::tuple<sockaddr_in6 *, size_t, uint32_t>> clientPlayerInputIds;
+            std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
             for (auto &[address, queue, regulateQueue, playerId, _] : clients)
             {
                 if (queue.size() < QUEUE_MIN || queue.size() > QUEUE_MAX)
