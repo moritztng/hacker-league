@@ -258,12 +258,14 @@ int main(int argc, char *argv[])
             {
                 if (!queue.empty())
                 {
+                    if (queue.size() > QUEUE_MAX)
+                    {
+                        queueTooLong = true;
+                    }
                     const Input &input = queue.front();
                     players[playerId] = input.player;
                     clientPlayerInputIds.push_back({&address, playerId, input.id});
                     queue.pop();
-                } else if (queue.size() > QUEUE_MAX) {
-                    queueTooLong = true;
                 }
             }
 
@@ -299,8 +301,9 @@ int main(int argc, char *argv[])
                 transitionTime = currentTime;
                 startTime += TRANSITION_DURATION;
             }
-            
-            if (!queueTooLong) {
+
+            if (!queueTooLong)
+            {
                 targetTime += period;
                 std::this_thread::sleep_until(targetTime);
             }
