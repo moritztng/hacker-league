@@ -60,6 +60,7 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
                     clients.push_back(Client{.address = clientAddress, .regulateQueue = true, .playerId = playerId, .lastUpdate = std::chrono::steady_clock::now()});
                     // TODO: deal with packet loss
                     sendto(udpSocket, &playerId, sizeof(playerId), 0, (sockaddr *)&clientAddress, sizeof(clientAddress));
+                    std::cout << "new client connected" << std::endl;
                 }
                 else
                 {
@@ -238,6 +239,7 @@ int main(int argc, char *argv[])
                     ball = initialBall;
                     scores[0] = 0;
                     scores[1] = 0;
+                    std::cout << "game reset" << std::endl;
                 }
             }
             else
@@ -261,6 +263,7 @@ int main(int argc, char *argv[])
                     if (queue.size() > QUEUE_MAX)
                     {
                         queueTooLong = true;
+                        std::cout << "queue too long" << std::endl;
                     }
                     const Input &input = queue.front();
                     players[playerId] = input.player;
@@ -300,6 +303,7 @@ int main(int argc, char *argv[])
             {
                 transitionTime = currentTime;
                 startTime += TRANSITION_DURATION;
+                std::cout << "goal" << std::endl;
             }
 
             if (!queueTooLong)
