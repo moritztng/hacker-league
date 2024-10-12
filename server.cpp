@@ -229,10 +229,11 @@ int main(int argc, char *argv[])
         while (running)
         {
             const int64_t currentTime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            const int64_t duration = currentTime - startTime;
 
             if (clients.size() == 2)
             {
-                if (currentTime - startTime > GAME_DURATION)
+                if (duration > GAME_DURATION)
                 {
                     startTime = currentTime + TRANSITION_DURATION;
                     transitionTime = currentTime;
@@ -247,12 +248,15 @@ int main(int argc, char *argv[])
                 startTime = 0;
             }
 
+            const size_t nClients = clients.size();
             clients.erase(std::remove_if(clients.begin(), clients.end(),
                                          [](const Client &client)
                                          {
                                              return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - client.lastUpdate).count() > MAX_TIME_CLIENT_IDLE;
                                          }),
                           clients.end());
+            if (nClients != clients.size())
+                std::cout << "time: " << duration << ", client disconnected" << std::endl;
 
             std::vector<std::tuple<sockaddr_in *, size_t, uint32_t>> clientPlayerInputIds;
             bool queueTooLong = false;
@@ -263,7 +267,7 @@ int main(int argc, char *argv[])
                     if (queue.size() > QUEUE_MAX)
                     {
                         queueTooLong = true;
-                        std::cout << "queue too long" << std::endl;
+                        std::cout << "time: " << duration << ", queue too long" << std::endl;
                     }
                     const Input &input = queue.front();
                     players[playerId] = input.player;
@@ -303,7 +307,7 @@ int main(int argc, char *argv[])
             {
                 transitionTime = currentTime;
                 startTime += TRANSITION_DURATION;
-                std::cout << "goal" << std::endl;
+                std::cout << "time: " << duration << ", score: " << (uint32_t)scores[0] << "-" << (uint32_t)scores[1] << std::endl;
             }
 
             if (!queueTooLong)
