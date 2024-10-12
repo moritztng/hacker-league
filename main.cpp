@@ -82,11 +82,11 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
 
             int flags = fcntl(udpSocket, F_GETFL, 0);
-            if (flags == -1)
+            if (flags < 0)
             {
                 throw std::runtime_error("getting socket flags");
             }
-            if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) == -1)
+            if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) < 0)
             {
                 throw std::runtime_error("setting O_NONBLOCK flag");
             }

@@ -25,7 +25,7 @@ int main() {
 
     std::ifstream fontFile(ttfFile, std::ios::binary | std::ios::ate);
     if (!fontFile) {
-        std::cerr << "Failed to open font file." << std::endl;
+        std::cerr << "error: can't open font file" << std::endl;
         return EXIT_FAILURE;
     }
 
@@ -37,7 +37,7 @@ int main() {
 
     stbtt_fontinfo font;
     if (!stbtt_InitFont(&font, ttfBuffer.data(), 0)) {
-        std::cerr << "Failed to initialize font." << std::endl;
+        std::cerr << "error: can't initialize font" << std::endl;
         return EXIT_FAILURE;
     }
 
@@ -73,7 +73,7 @@ int main() {
 
     std::ofstream header(headerFile);
     if (!header) {
-        std::cerr << "Failed to create header file." << std::endl;
+        std::cerr << "error: can't create header file." << std::endl;
         return EXIT_FAILURE;
     }
 

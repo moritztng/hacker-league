@@ -37,7 +37,7 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
             struct sockaddr_in clientAddress;
             socklen_t clientAddressLength = sizeof(clientAddress);
             int recvLength = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&clientAddress, &clientAddressLength);
-            if (recvLength == 0)
+            if (recvLength < 1)
             {
                 throw std::runtime_error("receiving input");
             }
@@ -216,7 +216,7 @@ int main(int argc, char *argv[])
 
         constexpr uint16_t GAME_DURATION = 300;
         constexpr uint16_t TRANSITION_DURATION = 5;
-        constexpr uint8_t QUEUE_MAX = 3;
+        constexpr uint8_t QUEUE_MAX = 2;
 
         constexpr uint8_t MAX_TIME_CLIENT_IDLE = 5;
 
@@ -296,7 +296,7 @@ int main(int argc, char *argv[])
 
             const uint8_t oldScore = scores[0] + scores[1];
             physicsStep(arenaSize, goal, ball, carSize, players, true, scores);
-            if (scores[0] + scores[1] != oldScore)
+            if (clients.size() == 2 && scores[0] + scores[1] != oldScore)
             {
                 transitionTime = currentTime;
                 startTime += TRANSITION_DURATION;
