@@ -43,6 +43,10 @@ sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-
 sudo pacman -Syu
 sudo pacman -S vulkan-headers vulkan-validation-layers spirv-tools glfw glm eigen vim xxd gcc make curl
 ```
+### Slackware 15.0 
+Required dependencies and where to acquire them (not complete):
+ * glfw3 - https://slackbuilds.org/repository/15.0/libraries/glfw3/
+
 ## Build
 ```bash
 git clone https://github.com/moritztng/hacker-league.git
