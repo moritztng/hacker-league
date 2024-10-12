@@ -67,13 +67,19 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 throw std::runtime_error("creating udp socket");
             }
             char buffer = 0;
-            sendto(udpSocket, &buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
-            int recvLength = recv(udpSocket, &buffer, sizeof(buffer), 0);
-            if (recvLength == 0)
+            if (sendto(udpSocket, &buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1) {
+                throw std::runtime_error("sending byte");
+            };
+            
+            struct timeval timeout{.tv_sec = 1, .tv_usec = 0};
+            setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+            if (recv(udpSocket, &buffer, sizeof(buffer), 0) < 1)
             {
-                throw std::runtime_error("receiving playerId");
+                throw std::runtime_error("can't connect to server");
             }
             state.playerId = buffer;
+            timeout.tv_sec = 0;
+            setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
 
             int flags = fcntl(udpSocket, F_GETFL, 0);
             if (flags == -1)
@@ -2287,9 +2293,9 @@ int main(int argc, char *argv[])
 
             serverAddress = sockaddr_in{};
             serverAddress->sin_family = AF_INET;
-            if (inet_pton(AF_INET, address.c_str(), &serverAddress->sin_addr) < 0)
+            if (inet_pton(AF_INET, address.c_str(), &serverAddress->sin_addr) < 1)
             {
-                throw std::runtime_error("invalid ipv6 address or unsupported address family");
+                throw std::runtime_error("invalid ip address or unsupported address family");
             }
             serverAddress->sin_port = htons(std::stoi(port));
             state.players.push_back(initialPlayers[1]);
