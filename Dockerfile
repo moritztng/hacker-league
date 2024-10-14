@@ -26,5 +26,6 @@ RUN apt-get update && \
 
 # Copy the server binary from the build stage
 COPY --from=build /tmp/server /app/server
+RUN chmod +x /app/server
 
 ENTRYPOINT ["/app/server", "${localport:-10000}", "${publicip}", "${publicport}"]
