@@ -29,6 +29,7 @@ struct Client
 
 void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
 {
+    constexpr uint16_t PROTOCOL_VERSION = 0; 
     try
     {
         while (running)
@@ -59,7 +60,10 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
                     const uint8_t playerId = clients.size() == 0 ? 0 : clients[0].playerId ^ 1;
                     clients.push_back(Client{.address = clientAddress, .regulateQueue = true, .playerId = playerId, .lastUpdate = std::chrono::steady_clock::now()});
                     // TODO: deal with packet loss
-                    sendto(udpSocket, &playerId, sizeof(playerId), 0, (sockaddr *)&clientAddress, sizeof(clientAddress));
+                    char buffer[3];
+                    std::memcpy(buffer, &PROTOCOL_VERSION, 2);
+                    buffer[2] = playerId;
+                    sendto(udpSocket, buffer, sizeof(buffer), 0, (sockaddr *)&clientAddress, sizeof(clientAddress));
                     std::cout << "new client connected" << std::endl;
                 }
                 else

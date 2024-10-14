@@ -55,6 +55,7 @@ struct State
 
 void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in> &serverAddress)
 {
+    constexpr uint16_t PROTOCOL_VERSION = 0;
     int udpSocket = -1;
     try
     {
@@ -66,8 +67,8 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             {
                 throw std::runtime_error("creating udp socket");
             }
-            char buffer = 0;
-            if (sendto(udpSocket, &buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1) {
+            char buffer[3];
+            if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1) {
                 throw std::runtime_error("sending byte");
             };
             
@@ -77,7 +78,12 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             {
                 throw std::runtime_error("can't connect to server");
             }
-            state.playerId = buffer;
+            uint16_t server_protocol_version;
+            std::memcpy(&server_protocol_version, buffer, 2);
+            if (server_protocol_version != PROTOCOL_VERSION) {
+                throw std::runtime_error("game and server have different versions. please update your game.");
+            }
+            state.playerId = buffer[2];
             timeout.tv_sec = 0;
             setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
 
