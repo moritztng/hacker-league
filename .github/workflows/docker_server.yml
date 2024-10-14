@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - dockerfile: ./Dockerfile
-            image: ghcr.io/joamla96/hacker-leauge-server
+            image: ghcr.io/joamla96/hacker-leauge
     permissions:
       contents: read
       packages: write
