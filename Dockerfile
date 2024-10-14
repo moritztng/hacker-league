@@ -16,9 +16,7 @@ FROM debian:12.7
 # Set the working directory to /app
 WORKDIR /app
 
-ENV localport=""
-ENV publicip=""
-ENV publicport=""
+EXPOSE 10000
 
 RUN apt-get update && \
     apt-get install -y libglfw3 libcurl4-openssl-dev && \
@@ -28,4 +26,4 @@ RUN apt-get update && \
 COPY --from=build /tmp/server /app/server
 RUN chmod +x /app/server
 
-ENTRYPOINT ["/app/server", "${localport:-10000}", "${publicip}", "${publicport}"]
+ENTRYPOINT ["/app/server", "10000"]
