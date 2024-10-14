@@ -1,0 +1,72 @@
+name: Publish Docker Containers
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+"
+      
+jobs:
+  # define job to build and publish docker image
+  build-and-push-docker-image:
+    name: Build Latest Docker image and push to repositories
+    # run only when code is compiling and tests are passing
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile
+            image: ghcr.io/joamla96/hacker-leauge-server
+    permissions:
+      contents: read
+      packages: write
+
+    # steps to perform in job
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # setup Docker buld action
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
+        
+      # Setup "metadata"
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          # list of Docker images to use as base name for tags
+          images: ${{ matrix.image }}
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+          #  type=ref,event=pr
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=semver,pattern={{major}}
+          #  type=sha
+          #  type=schedule
+          
+      - name: Login to Github Packages
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: DEBUG
+        run: echo ${{ github.ref }}
+    
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
