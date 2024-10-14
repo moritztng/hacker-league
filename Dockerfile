@@ -19,6 +19,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the server binary from the build stage
-COPY --from=build /server /usr/local/bin/server
+COPY --from=build /server /server
 
 ENTRYPOINT ["server", "${localport:-10000}", "${publicip}", "${publicport}"]
