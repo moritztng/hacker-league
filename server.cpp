@@ -116,6 +116,9 @@ void publishServerAddress(std::string address, uint16_t port, std::vector<Client
 
         uint8_t time = PERIOD;
         size_t lastNPlayers = clients.size();
+
+        std::cout << "Publishing address \"" << address << "\" and port \"" << port << "\" to public servers list" << std::endl;
+
         while (running)
         {
             if (time < PERIOD && lastNPlayers == clients.size())
@@ -211,6 +214,8 @@ int main(int argc, char *argv[])
         {
             tcpThread = std::thread(&publishServerAddress, argv[2], std::stoi(argv[3]), std::ref(clients), std::ref(running));
         }
+
+        std::cout << "Server listening on address \"0.0.0.0\" (all interfaces) and port \"" << argv[1] << "\"" << std::endl;
 
         Sphere ball = initialBall;
         std::vector<Player> players = initialPlayers;
