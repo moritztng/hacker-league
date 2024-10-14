@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - dockerfile: ./Dockerfile
-            image: ghcr.io/joamla96/hacker-leauge
+            image: ghcr.io/joamla96/hacker-leauge-server
     permissions:
       contents: read
       packages: write
@@ -42,7 +42,7 @@ jobs:
           # generate Docker tags based on the following events/attributes
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern=v{{major}}.{{minor}}
           #  type=semver,pattern={{version}}
           #  type=ref,event=pr
           #  type=semver,pattern={{major}}
