@@ -1,6 +1,7 @@
 CXXFLAGS = -std=c++17 -O3
+GAME_SRC = main.cpp
 
-.PHONY: debug release clean
+.PHONY: debug release hacker-league_profile clean
 
 all: debug
 
@@ -9,8 +10,12 @@ debug: hacker-league server
 release: CXXFLAGS += -DNDEBUG
 release: hacker-league server
 
-hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png
-	g++ $(CXXFLAGS) -o hacker-league main.cpp -lvulkan -lglfw -lpthread -lcurl
+hacker-league_profile: CXXFLAGS += -DTRACY_ENABLE -Itracy/public
+hacker-league_profile: GAME_SRC += tracy/public/TracyClient.cpp
+hacker-league_profile: hacker-league tracy/public/TracyClient.cpp
+
+hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png 
+	g++ $(CXXFLAGS) -o hacker-league $(GAME_SRC) -lvulkan -lglfw -lpthread -lcurl
 
 font.h font.png: font
 	./font

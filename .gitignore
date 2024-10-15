@@ -8,3 +8,4 @@ hacker-league
 server
 *.db
 env
+tracy

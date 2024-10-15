@@ -1,5 +1,11 @@
 #include <eigen3/Eigen/Dense>
 
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#else
+#define ZoneScopedN(x)
+#endif
+
 constexpr float PI = 3.1415927f;
 
 struct ObjectState
@@ -51,11 +57,10 @@ const Eigen::Vector2f goal = {20.0, 8.0};
 const Eigen::Vector3f carSize = {1.25f, 0.75f, 2.f};
 const Eigen::Vector3f arenaSize = {100.0f, 20.0f, 200.0f};
 
-
-
 // TODO: lots of low hanging fruit to make it more efficient
 void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals, uint8_t scores[2] = nullptr)
 {
+    ZoneScopedN("physics step");
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
     constexpr float MAX_ACCELERATION = 30;
@@ -79,8 +84,10 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         {halfCarSize.x(), -halfCarSize.z()},
         {-halfCarSize.x(), halfCarSize.z()},
         {halfCarSize.x(), halfCarSize.z()}};
+
     for (auto &[carState, action] : players)
     {
+        ZoneScopedN("car acceleration and collision");
         Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
         carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
         float speed = carState.velocity.norm();
@@ -148,68 +155,89 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
     }
     // ball
     // vertical
-    if (ball.objectState.position.y() < ball.radius)
     {
-        ball.objectState.position.y() = ball.radius;
-        ball.objectState.velocity.y() *= ball.objectState.velocity.y() < -0.1 ? -BALL_RESTITUTION : 0;
-    }
-    else if (ball.objectState.position.y() > ball.radius)
-    {
-        ball.objectState.velocity.y() -= DELTA_GRAVITY;
-        if (ball.objectState.position.y() > arenaSize.y() - ball.radius)
+        ZoneScopedN("ball vertical collision");
+        if (ball.objectState.position.y() < ball.radius)
         {
-            ball.objectState.position.y() = arenaSize.y() - ball.radius;
-            ball.objectState.velocity.y() *= -1;
+            ball.objectState.position.y() = ball.radius;
+            ball.objectState.velocity.y() *= ball.objectState.velocity.y() < -0.1 ? -BALL_RESTITUTION : 0;
+        }
+        else if (ball.objectState.position.y() > ball.radius)
+        {
+            ball.objectState.velocity.y() -= DELTA_GRAVITY;
+            if (ball.objectState.position.y() > arenaSize.y() - ball.radius)
+            {
+                ball.objectState.position.y() = arenaSize.y() - ball.radius;
+                ball.objectState.velocity.y() *= -1;
+            }
         }
     }
     // friction
-    if (ball.objectState.position.y() == ball.radius)
     {
-        Eigen::Vector3f &velocity = ball.objectState.velocity;
-        float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
-        velocity.x() *= scale;
-        velocity.z() *= scale;
+        ZoneScopedN("ball friction");
+        if (ball.objectState.position.y() == ball.radius)
+        {
+            Eigen::Vector3f &velocity = ball.objectState.velocity;
+            float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
+            velocity.x() *= scale;
+            velocity.z() *= scale;
+        }
     }
     // side walls
-    if (halfArenaSize.x() - abs(ball.objectState.position.x()) < ball.radius)
     {
-        ball.objectState.position.x() = (ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - ball.radius);
-        ball.objectState.velocity.x() *= -BALL_RESTITUTION;
+        ZoneScopedN("ball sidewalls");
+        if (halfArenaSize.x() - abs(ball.objectState.position.x()) < ball.radius)
+        {
+            ball.objectState.position.x() = (ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - ball.radius);
+            ball.objectState.velocity.x() *= -BALL_RESTITUTION;
+        }
     }
     // front + back wall
-    if (halfArenaSize.z() - abs(ball.objectState.position.z()) < ball.radius && (ball.objectState.position.y() > goal.y() || abs(ball.objectState.position.x()) > goal.x() / 2))
     {
-        ball.objectState.position.z() = (ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - ball.radius);
-        ball.objectState.velocity.z() *= -BALL_RESTITUTION;
+        ZoneScopedN("ball front and back walls");
+        if (halfArenaSize.z() - abs(ball.objectState.position.z()) < ball.radius && (ball.objectState.position.y() > goal.y() || abs(ball.objectState.position.x()) > goal.x() / 2))
+        {
+            ball.objectState.position.z() = (ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - ball.radius);
+            ball.objectState.velocity.z() *= -BALL_RESTITUTION;
+        }
     }
     // goal
-    if (detectGoals && abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
     {
-        if (scores != nullptr)
+        ZoneScopedN("detect goal");
+        if (detectGoals && abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
         {
-            scores[ball.objectState.position.z() < 0 ? 1 : 0] += 1;
+            if (scores != nullptr)
+            {
+                scores[ball.objectState.position.z() < 0 ? 1 : 0] += 1;
+            }
+            ball.objectState.position.setZero();
+            ball.objectState.velocity.setZero();
         }
-        ball.objectState.position.setZero();
-        ball.objectState.velocity.setZero();
     }
     // goal posts + crossbar
-    for (int i = 0; i < 2; ++i)
     {
-        if ((i == 0) ? ball.objectState.position.y() < goal.y() - ball.radius : abs(ball.objectState.position.x()) < goal.x() / 2 - ball.radius)
+        ZoneScopedN("goal posts and crossbar");
+        for (int i = 0; i < 2; ++i)
         {
-            Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(goal.x() / 2 - abs(ball.objectState.position.x()), 0.f, arenaSize.z() / 2 - abs(ball.objectState.position.z())) : Eigen::Vector3f(0.f, goal.y() - ball.objectState.position.y(), arenaSize.z() / 2 - abs(ball.objectState.position.z()));
-            float distance = difference.norm();
-            if (distance < ball.radius)
+            if ((i == 0) ? ball.objectState.position.y() < goal.y() - ball.radius : abs(ball.objectState.position.x()) < goal.x() / 2 - ball.radius)
             {
-                Eigen::Vector3f adjustedDifference = difference.cwiseProduct(ball.objectState.position.cwiseSign());
-                ball.objectState.position -= adjustedDifference * (ball.radius / distance - 1);
-                Eigen::Vector3f normal = adjustedDifference / distance;
-                ball.objectState.velocity -= 2 * ball.objectState.velocity.dot(normal) * normal;
+                Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(goal.x() / 2 - abs(ball.objectState.position.x()), 0.f, arenaSize.z() / 2 - abs(ball.objectState.position.z())) : Eigen::Vector3f(0.f, goal.y() - ball.objectState.position.y(), arenaSize.z() / 2 - abs(ball.objectState.position.z()));
+                float distance = difference.norm();
+                if (distance < ball.radius)
+                {
+                    Eigen::Vector3f adjustedDifference = difference.cwiseProduct(ball.objectState.position.cwiseSign());
+                    ball.objectState.position -= adjustedDifference * (ball.radius / distance - 1);
+                    Eigen::Vector3f normal = adjustedDifference / distance;
+                    ball.objectState.velocity -= 2 * ball.objectState.velocity.dot(normal) * normal;
+                }
             }
         }
     }
 
-    for (auto &[carState, _] : players)
-        carState.position += carState.velocity * PERIOD;
-    ball.objectState.position += ball.objectState.velocity * PERIOD;
+    {
+        ZoneScopedN("change position of car and ball");
+        for (auto &[carState, _] : players)
+            carState.position += carState.velocity * PERIOD;
+        ball.objectState.position += ball.objectState.velocity * PERIOD;
+    }
 }
