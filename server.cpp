@@ -29,7 +29,7 @@ struct Client
 
 void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
 {
-    constexpr uint16_t PROTOCOL_VERSION = 0;
+    constexpr uint16_t PROTOCOL_VERSION = 1;
     try
     {
         while (running)

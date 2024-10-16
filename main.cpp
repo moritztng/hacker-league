@@ -53,7 +53,7 @@ struct State
 
 void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in> &serverAddress)
 {
-    constexpr uint16_t PROTOCOL_VERSION = 0;
+    constexpr uint16_t PROTOCOL_VERSION = 1;
     int udpSocket = -1;
     try
     {
