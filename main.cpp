@@ -40,10 +40,8 @@ struct Input
 
 struct State
 {
-    Box arena;
-    Eigen::Vector2f goal;
-    Sphere ball;
-    Eigen::Vector3f carSize;
+    ObjectState arenaState;
+    ObjectState ballState;
     std::vector<Player> players;
     std::optional<std::array<uint8_t, 2>> scores;
     uint8_t playerId;
@@ -68,11 +66,15 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 throw std::runtime_error("creating udp socket");
             }
             char buffer[3];
-            if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1) {
+            if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1)
+            {
                 throw std::runtime_error("sending byte");
             };
-            
-            struct timeval timeout{.tv_sec = 1, .tv_usec = 0};
+
+            struct timeval timeout
+            {
+                .tv_sec = 1, .tv_usec = 0
+            };
             setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
             if (recv(udpSocket, &buffer, sizeof(buffer), 0) < 1)
             {
@@ -80,7 +82,8 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             }
             uint16_t server_protocol_version;
             std::memcpy(&server_protocol_version, buffer, 2);
-            if (server_protocol_version != PROTOCOL_VERSION) {
+            if (server_protocol_version != PROTOCOL_VERSION)
+            {
                 throw std::runtime_error("game and server have different versions. please update your game.");
             }
             state.playerId = buffer[2];
@@ -102,7 +105,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
         constexpr float PERIOD = 1.f / FREQUENCY;
         constexpr size_t N_RECORDS = 5 * FREQUENCY;
 
-        Sphere ball = state.ball;
+        ObjectState ball = state.ballState;
         std::vector<Player> players = state.players;
         Player records[N_RECORDS];
         uint32_t stateId = 0;
@@ -148,9 +151,9 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                         std::memcpy(players[otherPlayer].carState.orientation.data(), buffer + 28, 12);
                         std::memcpy(&players[otherPlayer].action.steering, buffer + 40, 4);
                         std::memcpy(&players[otherPlayer].action.throttle, buffer + 44, 4);
-                        std::memcpy(ball.objectState.position.data(), buffer + 48, 12);
-                        std::memcpy(ball.objectState.velocity.data(), buffer + 60, 12);
-                        std::memcpy(ball.objectState.orientation.data(), buffer + 72, 12);
+                        std::memcpy(ball.position.data(), buffer + 48, 12);
+                        std::memcpy(ball.velocity.data(), buffer + 60, 12);
+                        std::memcpy(ball.orientation.data(), buffer + 72, 12);
                         std::memcpy(&state.countdown, buffer + 84, 8);
                         std::memcpy(&state.transitionCountdown, buffer + 92, 8);
                         std::memcpy(&state.scores, buffer + 100, 2);
@@ -174,11 +177,11 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 }
             }
 
-            physicsStep(state.arena.size, state.goal, ball, state.carSize, players, !multiplayer);
+            physicsStep(ball, players, !multiplayer);
 
             if (statesBehind == 0)
             {
-                state.ball = ball;
+                state.ballState = ball;
                 state.players = players;
                 targetTime += period;
                 std::this_thread::sleep_until(targetTime);
@@ -1462,53 +1465,51 @@ public:
                     // TODO: fix it for rasterizer.cullMode = VK_CULL_MODE_BACK_BIT, simplify
                     std::vector<Vertex> vertices;
                     std::vector<uint16_t> indices;
-                    Eigen::Vector3f halfSize;
                     std::vector<glm::vec3> points;
                     std::vector<std::pair<std::array<int, 4>, glm::vec3>> faces;
                     int verticesOffset;
 
                     float post = 1;
-                    float halfGoalWidth = state.goal.x() / 2.f;
-                    float goalHeight = state.goal.y();
-                    halfSize = state.arena.size / 2.0f;
+                    float halfGoalWidth = goalSize.x() / 2.f;
+                    float goalHeight = goalSize.y();
                     points = {
                         {
-                            {-halfSize.x(), -halfSize.y(), -halfSize.z()},
-                            {halfSize.x(), -halfSize.y(), -halfSize.z()},
-                            {halfSize.x(), -halfSize.y(), halfSize.z()},
-                            {-halfSize.x(), -halfSize.y(), halfSize.z()},
-                            {-halfSize.x(), halfSize.y(), -halfSize.z()},
-                            {halfSize.x(), halfSize.y(), -halfSize.z()},
-                            {halfSize.x(), halfSize.y(), halfSize.z()},
-                            {-halfSize.x(), halfSize.y(), halfSize.z()},
-                            {-halfSize.x() + post, -halfSize.y(), -halfSize.z()},
-                            {-halfSize.x() + post, halfSize.y(), -halfSize.z()},
-                            {halfSize.x() - post, -halfSize.y(), -halfSize.z()},
-                            {halfSize.x() - post, halfSize.y(), -halfSize.z()},
-                            {-halfSize.x() + post, -halfSize.y(), halfSize.z()},
-                            {-halfSize.x() + post, halfSize.y(), halfSize.z()},
-                            {halfSize.x() - post, -halfSize.y(), halfSize.z()},
-                            {halfSize.x() - post, halfSize.y(), halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y(), -halfSize.z()},
-                            {-halfGoalWidth, -halfSize.y(), -halfSize.z()},
-                            {-halfGoalWidth, -halfSize.y() + goalHeight, -halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y() + goalHeight, -halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y(), -halfSize.z()},
-                            {halfGoalWidth, -halfSize.y(), -halfSize.z()},
-                            {halfGoalWidth, -halfSize.y() + goalHeight, -halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y() + goalHeight, -halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y() + goalHeight + post, -halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y() + goalHeight + post, -halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y(), halfSize.z()},
-                            {-halfGoalWidth, -halfSize.y(), halfSize.z()},
-                            {-halfGoalWidth, -halfSize.y() + goalHeight, halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y() + goalHeight, halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y(), halfSize.z()},
-                            {halfGoalWidth, -halfSize.y(), halfSize.z()},
-                            {halfGoalWidth, -halfSize.y() + goalHeight, halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y() + goalHeight, halfSize.z()},
-                            {halfGoalWidth + post, -halfSize.y() + goalHeight + post, halfSize.z()},
-                            {-halfGoalWidth - post, -halfSize.y() + goalHeight + post, halfSize.z()},
+                            {-halfArenaSize.x(), -halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x(), -halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x(), -halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfArenaSize.x(), -halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfArenaSize.x(), halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x(), halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x(), halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfArenaSize.x(), halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfArenaSize.x() + post, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {-halfArenaSize.x() + post, halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x() - post, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfArenaSize.x() - post, halfArenaSize.y(), -halfArenaSize.z()},
+                            {-halfArenaSize.x() + post, -halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfArenaSize.x() + post, halfArenaSize.y(), halfArenaSize.z()},
+                            {halfArenaSize.x() - post, -halfArenaSize.y(), halfArenaSize.z()},
+                            {halfArenaSize.x() - post, halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {-halfGoalWidth, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {-halfGoalWidth, -halfArenaSize.y() + goalHeight, -halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y() + goalHeight, -halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfGoalWidth, -halfArenaSize.y(), -halfArenaSize.z()},
+                            {halfGoalWidth, -halfArenaSize.y() + goalHeight, -halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y() + goalHeight, -halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y() + goalHeight + post, -halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y() + goalHeight + post, -halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfGoalWidth, -halfArenaSize.y(), halfArenaSize.z()},
+                            {-halfGoalWidth, -halfArenaSize.y() + goalHeight, halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y() + goalHeight, halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y(), halfArenaSize.z()},
+                            {halfGoalWidth, -halfArenaSize.y(), halfArenaSize.z()},
+                            {halfGoalWidth, -halfArenaSize.y() + goalHeight, halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y() + goalHeight, halfArenaSize.z()},
+                            {halfGoalWidth + post, -halfArenaSize.y() + goalHeight + post, halfArenaSize.z()},
+                            {-halfGoalWidth - post, -halfArenaSize.y() + goalHeight + post, halfArenaSize.z()},
                         },
                     };
                     faces = {
@@ -1547,7 +1548,7 @@ public:
                         {
                             float theta = latitude * PI / RESOLUTION - PI / 2.f;
                             float phi = longitude * 2.f * PI / RESOLUTION;
-                            glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * state.ball.radius;
+                            glm::vec3 position = glm::vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)) * ballRadius;
                             glm::vec3 normal = glm::normalize(position);
                             vertices.push_back({position, normal});
 
@@ -1563,15 +1564,14 @@ public:
                     indicesOffsets.push_back(indices.size());
 
                     verticesOffset = vertices.size();
-                    halfSize = state.carSize / 2.f;
-                    points = {{{-halfSize.x(), -halfSize.y(), -halfSize.z()},
-                               {halfSize.x(), -halfSize.y(), -halfSize.z()},
-                               {halfSize.x(), halfSize.y(), -halfSize.z()},
-                               {-halfSize.x(), halfSize.y(), -halfSize.z()},
-                               {-halfSize.x(), -halfSize.y(), halfSize.z()},
-                               {halfSize.x(), -halfSize.y(), halfSize.z()},
-                               {halfSize.x(), halfSize.y(), halfSize.z()},
-                               {-halfSize.x(), halfSize.y(), halfSize.z()}}};
+                    points = {{{-halfCarSize.x(), -halfCarSize.y(), -halfCarSize.z()},
+                               {halfCarSize.x(), -halfCarSize.y(), -halfCarSize.z()},
+                               {halfCarSize.x(), halfCarSize.y(), -halfCarSize.z()},
+                               {-halfCarSize.x(), halfCarSize.y(), -halfCarSize.z()},
+                               {-halfCarSize.x(), -halfCarSize.y(), halfCarSize.z()},
+                               {halfCarSize.x(), -halfCarSize.y(), halfCarSize.z()},
+                               {halfCarSize.x(), halfCarSize.y(), halfCarSize.z()},
+                               {-halfCarSize.x(), halfCarSize.y(), halfCarSize.z()}}};
                     faces = {{{{0, 1, 2, 3}, {0.0f, 0.0f, -1.0f}},
                               {{4, 5, 6, 7}, {0.0f, 0.0f, 1.0f}},
                               {{0, 1, 5, 4}, {0.0f, -1.0f, 0.0f}},
@@ -1905,9 +1905,9 @@ public:
                         {
                             constexpr float BALLCAM_RADIUS = 8;
                             UniformBufferObject ubo{};
-                            glm::vec3 ballPosition = glm::vec3(state.ball.objectState.position.x(), state.ball.objectState.position.y(), state.ball.objectState.position.z());
-                            ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arena.objectState.position.x(), state.arena.objectState.position.y(), state.arena.objectState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arena.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
-                            ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ball.objectState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                            glm::vec3 ballPosition = glm::vec3(state.ballState.position.x(), state.ballState.position.y(), state.ballState.position.z());
+                            ubo.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(state.arenaState.position.x(), state.arenaState.position.y(), state.arenaState.position.z())) * glm::rotate(glm::mat4(1.0f), state.arenaState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                            ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ballState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                             for (int i = 0; i < state.players.size(); i++)
                             {
                                 ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -1916,7 +1916,7 @@ public:
                             if (ballCam)
                             {
                                 Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.playerId].carState.position.x(), state.players[state.playerId].carState.position.z());
-                                Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ball.objectState.position.x(), state.ball.objectState.position.z());
+                                Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ballState.position.x(), state.ballState.position.z());
                                 Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
                                 eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
                                 center = ballPosition;
@@ -2226,13 +2226,10 @@ int main(int argc, char *argv[])
                   << std::endl;
 
         State state = {
-            .arena = {.objectState = {.position = {0.0f, 10.0f, 0.0f},
-                                      .velocity = {},
-                                      .orientation = {}},
-                      .size = arenaSize},
-            .goal = goal,
-            .ball = initialBall,
-            .carSize = carSize,
+            .arenaState = {.position = {0.0f, 10.0f, 0.0f},
+                           .velocity = {0.f, 0.f, 0.f},
+                           .orientation = {0.f, 0.f, 0.f}},
+            .ballState = initialBall,
             .players = {initialPlayers[0]},
             .countdown = 0,
             .transitionCountdown = 0,

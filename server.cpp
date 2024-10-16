@@ -29,7 +29,7 @@ struct Client
 
 void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
 {
-    constexpr uint16_t PROTOCOL_VERSION = 0; 
+    constexpr uint16_t PROTOCOL_VERSION = 0;
     try
     {
         while (running)
@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
 
         std::cout << "Server listening on address \"0.0.0.0\" (all interfaces) and port \"" << argv[1] << "\"" << std::endl;
 
-        Sphere ball = initialBall;
+        ObjectState ball = initialBall;
         std::vector<Player> players = initialPlayers;
         uint8_t scores[2];
 
@@ -301,9 +301,9 @@ int main(int argc, char *argv[])
                 std::memcpy(buffer + 28, players[otherPlayer].carState.orientation.data(), 12);
                 std::memcpy(buffer + 40, &players[otherPlayer].action.steering, 4);
                 std::memcpy(buffer + 44, &players[otherPlayer].action.throttle, 4);
-                std::memcpy(buffer + 48, ball.objectState.position.data(), 12);
-                std::memcpy(buffer + 60, ball.objectState.velocity.data(), 12);
-                std::memcpy(buffer + 72, ball.objectState.orientation.data(), 12);
+                std::memcpy(buffer + 48, ball.position.data(), 12);
+                std::memcpy(buffer + 60, ball.velocity.data(), 12);
+                std::memcpy(buffer + 72, ball.orientation.data(), 12);
                 std::memcpy(buffer + 84, &countdown, 8);
                 std::memcpy(buffer + 92, &transitionCountdown, 8);
                 std::memcpy(buffer + 100, &scores, 2);
@@ -311,7 +311,7 @@ int main(int argc, char *argv[])
             }
 
             const uint8_t oldScore = scores[0] + scores[1];
-            physicsStep(arenaSize, goal, ball, carSize, players, true, scores);
+            physicsStep(ball, players, true, scores);
             if (clients.size() == 2 && scores[0] + scores[1] != oldScore)
             {
                 transitionTime = currentTime;
