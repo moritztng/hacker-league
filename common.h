@@ -57,17 +57,15 @@ const Eigen::Vector2f goal = {20.0, 8.0};
 const Eigen::Vector3f carSize = {1.25f, 0.75f, 2.f};
 const Eigen::Vector3f arenaSize = {100.0f, 20.0f, 200.0f};
 
-// TODO: lots of low hanging fruit to make it more efficient
 void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, Sphere &ball, const Eigen::Vector3f &carSize, std::vector<Player> &players, const bool detectGoals, uint8_t scores[2] = nullptr)
 {
     ZoneScopedN("physics step");
     constexpr uint FREQUENCY = 60;
     constexpr float PERIOD = 1.f / FREQUENCY;
     constexpr float MAX_ACCELERATION = 30;
-    constexpr float CAR_FRICTION = 10;
+    constexpr float CAR_FRICTION = 5;
     constexpr float BALL_FRICTION = 10;
-    constexpr float TURN_RADIUS_MIN = 0.3;
-    constexpr float TURN_RADIUS_RATE = 0.5;
+    constexpr float STEERING_SCALE = 2.1;
     constexpr float MAX_SPEED = 40;
     constexpr float GRAVITY = 4;
     constexpr float BALL_RESTITUTION = 0.6;
@@ -75,8 +73,7 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
     constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
     constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
     constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
-    // car
-    // acceleration
+
     Eigen::Vector3f halfArenaSize = arenaSize / 2.f;
     Eigen::Vector3f halfCarSize = carSize / 2.f;
     std::vector<Eigen::Vector2f> localCorners = {
@@ -84,79 +81,79 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         {halfCarSize.x(), -halfCarSize.z()},
         {-halfCarSize.x(), halfCarSize.z()},
         {halfCarSize.x(), halfCarSize.z()}};
-
+    
+    // cars
     for (auto &[carState, action] : players)
     {
         ZoneScopedN("car acceleration and collision");
-        Eigen::Vector3f orientationVector = {std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
-        carState.velocity += orientationVector * MAX_DELTA_SPEED * action.throttle;
-        float speed = carState.velocity.norm();
-        if (speed > DELTA_CAR_FRICTION)
-        {
-            carState.velocity -= carState.velocity.normalized() * DELTA_CAR_FRICTION;
-            speed -= DELTA_CAR_FRICTION;
-            if (speed > MAX_SPEED)
-            {
-                carState.velocity *= MAX_SPEED / speed;
-                speed = MAX_SPEED;
-            }
-        }
-        else
-        {
-            carState.velocity.setZero();
-            speed = 0;
-        }
         // steering
-        int backwards = carState.velocity.dot(orientationVector) < 0 ? -1 : 1;
-        carState.orientation.y() -= backwards * action.steering * speed / (speed * TURN_RADIUS_RATE + TURN_RADIUS_MIN) * PERIOD;
-        carState.velocity = backwards * Eigen::Vector3f(std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())) * speed;
-        // wall collision
-        // TODO: make more efficient
-        for (const auto &localCorner : localCorners)
+        const int backwards = carState.velocity.dot(Eigen::Vector3f{std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())}) < 0 ? -1 : 1;
+        carState.orientation.y() -= backwards * action.steering * STEERING_SCALE * PERIOD;
+        // acceleration
+        float speed = carState.velocity.norm();
+        speed += backwards * action.throttle * MAX_DELTA_SPEED - std::min(DELTA_CAR_FRICTION, speed);
+        carState.velocity = backwards * speed * Eigen::Vector3f{std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
+        if (speed > MAX_SPEED)
         {
-            Eigen::Vector2f globalCorner = Eigen::Rotation2Df(carState.orientation.y()).toRotationMatrix() * localCorner + Eigen::Vector2f(carState.position.x(), carState.position.z());
-            float xDistance = std::abs(globalCorner.x()) - halfArenaSize.x();
-            float zDistance = std::abs(globalCorner.y()) - halfArenaSize.z();
-            if (xDistance > 0)
+            carState.velocity *= MAX_SPEED / speed;
+            speed = MAX_SPEED;
+        }
+        // wall collision
+        if (abs(carState.position.x()) > halfArenaSize.x() - carSize.z() || abs(carState.position.z()) > halfArenaSize.z() - carSize.z())
+        {
+            Eigen::Rotation2Df carRotation(carState.orientation.y());
+            for (const auto &localCorner : localCorners)
             {
-                int leftRight = globalCorner.x() > 0 ? 1 : -1;
-                carState.position.x() -= leftRight * (xDistance + 0.001f);
-                if (leftRight * carState.velocity.x() > 0)
+                Eigen::Vector2f globalCorner = Eigen::Vector2f(carState.position.x(), carState.position.z()) + carRotation * localCorner;
+                struct Dimension
                 {
-                    carState.velocity.x() = 0;
-                }
-            }
-            if (zDistance > 0)
-            {
-                int backFront = globalCorner.y() > 0 ? 1 : -1;
-                carState.position.z() -= backFront * (zDistance + 0.001f);
-                if (backFront * carState.velocity.z() > 0)
+                    float globalCorner;
+                    float halfArenaSize;
+                    float &position;
+                    float &velocity;
+                };
+                const Dimension dimensions[] = {
+                    {globalCorner.x(), halfArenaSize.x(), carState.position.x(), carState.velocity.x()},
+                    {globalCorner.y(), halfArenaSize.z(), carState.position.z(), carState.velocity.z()}};
+
+                for (const auto &[globalCorner, halfArenaSize, position, velocity] : dimensions)
                 {
-                    carState.velocity.z() = 0;
+                    const float distance = std::abs(globalCorner) - halfArenaSize;
+                    if (distance > 0)
+                    {
+                        const int direction = globalCorner < 0 ? -1 : 1;
+                        position -= direction * distance;
+                        if (direction * velocity > 0)
+                        {
+                            velocity = 0;
+                        }
+                    }
                 }
             }
         }
-
         // car ball collision
-        Eigen::AngleAxisf::Matrix3 rotation = Eigen::AngleAxisf(carState.orientation.y(), Eigen::Vector3f::UnitY()).toRotationMatrix();
-        Eigen::Vector3f localBallPosition = rotation.transpose() * (ball.objectState.position - carState.position);
-        Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
-        float distance = difference.norm();
-        if (distance < ball.radius)
+        if ((ball.objectState.position - carState.position).norm() < ball.radius + localCorners[0].norm())
         {
-            ball.objectState.position -= rotation * difference * (ball.radius / distance - 1);
-            Eigen::Vector3f collisionNormal = (ball.objectState.position - carState.position).normalized();
-            float velocityAlongNormal = (ball.objectState.velocity - carState.velocity).dot(collisionNormal);
-            if (velocityAlongNormal < 0)
+            const Eigen::AngleAxisf carRotation(carState.orientation.y(), Eigen::Vector3f::UnitY());
+            const Eigen::Vector3f localBallPosition = carRotation.inverse() * (ball.objectState.position - carState.position);
+            const Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
+            const float distance = difference.norm();
+            if (distance < ball.radius)
             {
-                ball.objectState.velocity -= 1 * velocityAlongNormal * collisionNormal;
+                ball.objectState.position -= carRotation * difference * (ball.radius / distance - 1);
+                const Eigen::Vector3f collisionNormal = (ball.objectState.position - carState.position).normalized();
+                float velocityAlongNormal = (ball.objectState.velocity - carState.velocity).dot(collisionNormal);
+                if (velocityAlongNormal < 0)
+                {
+                    ball.objectState.velocity -= velocityAlongNormal * collisionNormal;
+                }
             }
         }
     }
     // ball
-    // vertical
+    // vertical collision and gravity
     {
-        ZoneScopedN("ball vertical collision");
+        ZoneScopedN("ball vertical collision and gravity");
         if (ball.objectState.position.y() < ball.radius)
         {
             ball.objectState.position.y() = ball.radius;
@@ -165,10 +162,58 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         else if (ball.objectState.position.y() > ball.radius)
         {
             ball.objectState.velocity.y() -= DELTA_GRAVITY;
-            if (ball.objectState.position.y() > arenaSize.y() - ball.radius)
+            const float maxY = arenaSize.y() - ball.radius;
+            if (ball.objectState.position.y() > maxY)
             {
-                ball.objectState.position.y() = arenaSize.y() - ball.radius;
+                ball.objectState.position.y() = maxY;
                 ball.objectState.velocity.y() *= -1;
+            }
+        }
+    }
+    // side-walls
+    {
+        ZoneScopedN("ball side-walls");
+        const float maxX = halfArenaSize.x() - ball.radius;
+        if (abs(ball.objectState.position.x()) > maxX)
+        {
+            ball.objectState.position.x() = (ball.objectState.position.x() < 0 ? -1 : 1) * maxX;
+            ball.objectState.velocity.x() *= -BALL_RESTITUTION;
+        }
+    }
+    // goal-walls
+    {
+        ZoneScopedN("ball goal-walls");
+        const float maxZ = halfArenaSize.z() - ball.radius;
+        if (abs(ball.objectState.position.z()) > maxZ)
+        {
+            if (ball.objectState.position.y() > goal.y() || abs(ball.objectState.position.x()) > goal.x() / 2)
+            {
+                ball.objectState.position.z() = (ball.objectState.position.z() < 0 ? -1 : 1) * maxZ;
+                ball.objectState.velocity.z() *= -BALL_RESTITUTION;
+            }
+            else
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    if (i == 0 ? abs(ball.objectState.position.x()) > goal.x() / 2 - ball.radius : ball.objectState.position.y() > goal.y() - ball.radius)
+                    {
+                        const Eigen::Vector3f difference = i == 0 ? Eigen::Vector3f(goal.x() / 2 - abs(ball.objectState.position.x()), 0.f, halfArenaSize.z() - abs(ball.objectState.position.z())) : Eigen::Vector3f(0.f, goal.y() - ball.objectState.position.y(), halfArenaSize.z() - abs(ball.objectState.position.z()));
+                        const float distance = difference.norm();
+                        const Eigen::Vector3f adjustedDifference = difference.cwiseProduct(ball.objectState.position.cwiseSign());
+                        ball.objectState.position -= adjustedDifference * (ball.radius / distance - 1);
+                        const Eigen::Vector3f normal = adjustedDifference / distance;
+                        ball.objectState.velocity -= 2 * ball.objectState.velocity.dot(normal) * normal;
+                    }
+                }
+            }
+            if (detectGoals && abs(ball.objectState.position.z()) > halfArenaSize.z() + ball.radius)
+            {
+                if (scores != nullptr)
+                {
+                    scores[ball.objectState.position.z() < 0 ? 1 : 0] += 1;
+                }
+                ball.objectState.position.setZero();
+                ball.objectState.velocity.setZero();
             }
         }
     }
@@ -178,62 +223,12 @@ void physicsStep(const Eigen::Vector3f &arenaSize, const Eigen::Vector2f &goal, 
         if (ball.objectState.position.y() == ball.radius)
         {
             Eigen::Vector3f &velocity = ball.objectState.velocity;
-            float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
+            const float scale = std::max(1 - DELTA_BALL_FRICTION / std::hypot(velocity.x(), velocity.z()), 0.f);
             velocity.x() *= scale;
             velocity.z() *= scale;
         }
     }
-    // side walls
-    {
-        ZoneScopedN("ball sidewalls");
-        if (halfArenaSize.x() - abs(ball.objectState.position.x()) < ball.radius)
-        {
-            ball.objectState.position.x() = (ball.objectState.position.x() < 0 ? -1 : 1) * (halfArenaSize.x() - ball.radius);
-            ball.objectState.velocity.x() *= -BALL_RESTITUTION;
-        }
-    }
-    // front + back wall
-    {
-        ZoneScopedN("ball front and back walls");
-        if (halfArenaSize.z() - abs(ball.objectState.position.z()) < ball.radius && (ball.objectState.position.y() > goal.y() || abs(ball.objectState.position.x()) > goal.x() / 2))
-        {
-            ball.objectState.position.z() = (ball.objectState.position.z() < 0 ? -1 : 1) * (halfArenaSize.z() - ball.radius);
-            ball.objectState.velocity.z() *= -BALL_RESTITUTION;
-        }
-    }
-    // goal
-    {
-        ZoneScopedN("detect goal");
-        if (detectGoals && abs(ball.objectState.position.z()) > arenaSize.z() / 2 + ball.radius)
-        {
-            if (scores != nullptr)
-            {
-                scores[ball.objectState.position.z() < 0 ? 1 : 0] += 1;
-            }
-            ball.objectState.position.setZero();
-            ball.objectState.velocity.setZero();
-        }
-    }
-    // goal posts + crossbar
-    {
-        ZoneScopedN("goal posts and crossbar");
-        for (int i = 0; i < 2; ++i)
-        {
-            if ((i == 0) ? ball.objectState.position.y() < goal.y() - ball.radius : abs(ball.objectState.position.x()) < goal.x() / 2 - ball.radius)
-            {
-                Eigen::Vector3f difference = (i == 0) ? Eigen::Vector3f(goal.x() / 2 - abs(ball.objectState.position.x()), 0.f, arenaSize.z() / 2 - abs(ball.objectState.position.z())) : Eigen::Vector3f(0.f, goal.y() - ball.objectState.position.y(), arenaSize.z() / 2 - abs(ball.objectState.position.z()));
-                float distance = difference.norm();
-                if (distance < ball.radius)
-                {
-                    Eigen::Vector3f adjustedDifference = difference.cwiseProduct(ball.objectState.position.cwiseSign());
-                    ball.objectState.position -= adjustedDifference * (ball.radius / distance - 1);
-                    Eigen::Vector3f normal = adjustedDifference / distance;
-                    ball.objectState.velocity -= 2 * ball.objectState.velocity.dot(normal) * normal;
-                }
-            }
-        }
-    }
-
+    // change position of car and ball
     {
         ZoneScopedN("change position of car and ball");
         for (auto &[carState, _] : players)
