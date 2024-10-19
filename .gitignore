@@ -9,3 +9,4 @@ server
 *.db
 env
 tracy
+*.so

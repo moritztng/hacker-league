@@ -133,9 +133,9 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 {
                     char buffer[102];
                     std::memcpy(buffer, &stateId, 4);
-                    std::memcpy(buffer + 4, players[state.playerId].carState.position.data(), 12);
-                    std::memcpy(buffer + 16, players[state.playerId].carState.velocity.data(), 12);
-                    std::memcpy(buffer + 28, players[state.playerId].carState.orientation.data(), 12);
+                    std::memcpy(buffer + 4, players[state.playerId].state.position.data(), 12);
+                    std::memcpy(buffer + 16, players[state.playerId].state.velocity.data(), 12);
+                    std::memcpy(buffer + 28, players[state.playerId].state.orientation.data(), 12);
                     std::memcpy(buffer + 40, &players[state.playerId].action.steering, 4);
                     std::memcpy(buffer + 44, &players[state.playerId].action.throttle, 4);
                     sendto(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
@@ -146,9 +146,9 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                         uint32_t serverId;
                         uint8_t otherPlayer = state.playerId ^ 1;
                         std::memcpy(&serverId, buffer, 4);
-                        std::memcpy(players[otherPlayer].carState.position.data(), buffer + 4, 12);
-                        std::memcpy(players[otherPlayer].carState.velocity.data(), buffer + 16, 12);
-                        std::memcpy(players[otherPlayer].carState.orientation.data(), buffer + 28, 12);
+                        std::memcpy(players[otherPlayer].state.position.data(), buffer + 4, 12);
+                        std::memcpy(players[otherPlayer].state.velocity.data(), buffer + 16, 12);
+                        std::memcpy(players[otherPlayer].state.orientation.data(), buffer + 28, 12);
                         std::memcpy(&players[otherPlayer].action.steering, buffer + 40, 4);
                         std::memcpy(&players[otherPlayer].action.throttle, buffer + 44, 4);
                         std::memcpy(ball.position.data(), buffer + 48, 12);
@@ -177,7 +177,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 }
             }
 
-            physicsStep(ball, players, !multiplayer);
+            physicsStep(ball, players, !multiplayer, PERIOD);
 
             if (statesBehind == 0)
             {
@@ -1910,12 +1910,12 @@ public:
                             ubo.model[1] = glm::translate(glm::mat4(1.0f), ballPosition) * glm::rotate(glm::mat4(1.0f), state.ballState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                             for (int i = 0; i < state.players.size(); i++)
                             {
-                                ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].carState.position.x(), state.players[i].carState.position.y(), state.players[i].carState.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
+                                ubo.model[2 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(state.players[i].state.position.x(), state.players[i].state.position.y(), state.players[i].state.position.z())) * glm::rotate(glm::mat4(1.0f), state.players[i].state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f));
                             }
                             glm::vec3 eye, center;
                             if (ballCam)
                             {
-                                Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.playerId].carState.position.x(), state.players[state.playerId].carState.position.z());
+                                Eigen::Vector2f carPositionXZ = Eigen::Vector2f(state.players[state.playerId].state.position.x(), state.players[state.playerId].state.position.z());
                                 Eigen::Vector2f ballPositionXZ = Eigen::Vector2f(state.ballState.position.x(), state.ballState.position.z());
                                 Eigen::Vector2f eyeXZ = carPositionXZ - BALLCAM_RADIUS * (ballPositionXZ - carPositionXZ).normalized();
                                 eye = glm::vec3(eyeXZ.x(), 2.0f, eyeXZ.y());
@@ -1923,8 +1923,8 @@ public:
                             }
                             else
                             {
-                                auto carPosition = glm::vec3(state.players[state.playerId].carState.position.x(), state.players[state.playerId].carState.position.y(), state.players[state.playerId].carState.position.z());
-                                eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[state.playerId].carState.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
+                                auto carPosition = glm::vec3(state.players[state.playerId].state.position.x(), state.players[state.playerId].state.position.y(), state.players[state.playerId].state.position.z());
+                                eye = carPosition + glm::mat3(glm::rotate(glm::mat4(1.0f), state.players[state.playerId].state.orientation.y(), glm::vec3(0.0f, 1.0f, 0.0f))) * glm::vec3(0.0f, 1.5f, -BALLCAM_RADIUS);
                                 center = carPosition;
                             }
                             ubo.view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0, 0.0f));

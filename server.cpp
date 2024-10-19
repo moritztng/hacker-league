@@ -75,9 +75,9 @@ void receive(int &udpSocket, std::vector<Client> &clients, bool &running)
             {
                 Input input;
                 std::memcpy(&input.id, buffer, 4);
-                std::memcpy(input.player.carState.position.data(), buffer + 4, 12);
-                std::memcpy(input.player.carState.velocity.data(), buffer + 16, 12);
-                std::memcpy(input.player.carState.orientation.data(), buffer + 28, 12);
+                std::memcpy(input.player.state.position.data(), buffer + 4, 12);
+                std::memcpy(input.player.state.velocity.data(), buffer + 16, 12);
+                std::memcpy(input.player.state.orientation.data(), buffer + 28, 12);
                 std::memcpy(&input.player.action.steering, buffer + 40, 4);
                 std::memcpy(&input.player.action.throttle, buffer + 44, 4);
                 client->queue.push(input);
@@ -296,9 +296,9 @@ int main(int argc, char *argv[])
                     countdown = 0;
                 char buffer[102];
                 std::memcpy(buffer, &inputId, 4);
-                std::memcpy(buffer + 4, players[otherPlayer].carState.position.data(), 12);
-                std::memcpy(buffer + 16, players[otherPlayer].carState.velocity.data(), 12);
-                std::memcpy(buffer + 28, players[otherPlayer].carState.orientation.data(), 12);
+                std::memcpy(buffer + 4, players[otherPlayer].state.position.data(), 12);
+                std::memcpy(buffer + 16, players[otherPlayer].state.velocity.data(), 12);
+                std::memcpy(buffer + 28, players[otherPlayer].state.orientation.data(), 12);
                 std::memcpy(buffer + 40, &players[otherPlayer].action.steering, 4);
                 std::memcpy(buffer + 44, &players[otherPlayer].action.throttle, 4);
                 std::memcpy(buffer + 48, ball.position.data(), 12);
@@ -311,7 +311,7 @@ int main(int argc, char *argv[])
             }
 
             const uint8_t oldScore = scores[0] + scores[1];
-            physicsStep(ball, players, true, scores);
+            physicsStep(ball, players, true, PERIOD, scores);
             if (clients.size() == 2 && scores[0] + scores[1] != oldScore)
             {
                 transitionTime = currentTime;

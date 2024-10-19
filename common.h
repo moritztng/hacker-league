@@ -23,16 +23,16 @@ struct Action
 
 struct Player
 {
-    ObjectState carState;
+    ObjectState state;
     Action action;
 };
 
 const std::vector<Player> initialPlayers = {
-    Player{.carState = {.position = {0.0f, 0.375f, -40.0f},
+    Player{.state = {.position = {0.0f, 0.375f, -40.0f},
                         .velocity = {0.0f, 0.0f, 0.0f},
                         .orientation = {0.0f, 0.0f, 0.0f}},
            .action = {.throttle = 0.0f, .steering = 0.0f}},
-    Player{.carState = {.position = {0.0f, 0.375f, 40.0f},
+    Player{.state = {.position = {0.0f, 0.375f, 40.0f},
                         .velocity = {0.0f, 0.0f, 0.0f},
                         .orientation = {0.0f, PI, 0.0f}},
            .action = {.throttle = 0.0f, .steering = 0.0f}},
@@ -54,11 +54,9 @@ const std::vector<Eigen::Vector2f> carCorners = {
     {-halfCarSize.x(), halfCarSize.z()},
     {halfCarSize.x(), halfCarSize.z()}};
 
-void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool detectGoals, uint8_t scores[2] = nullptr)
+void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool detectGoals, const float duration, uint8_t scores[2] = nullptr)
 {
     ZoneScopedN("physics step");
-    constexpr uint FREQUENCY = 60;
-    constexpr float PERIOD = 1.f / FREQUENCY;
     constexpr float MAX_ACCELERATION = 30;
     constexpr float CAR_FRICTION = 5;
     constexpr float BALL_FRICTION = 10;
@@ -66,34 +64,34 @@ void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool det
     constexpr float MAX_SPEED = 40;
     constexpr float GRAVITY = 4;
     constexpr float BALL_RESTITUTION = 0.6;
-    constexpr float MAX_DELTA_SPEED = MAX_ACCELERATION * PERIOD;
-    constexpr float DELTA_CAR_FRICTION = CAR_FRICTION * PERIOD;
-    constexpr float DELTA_BALL_FRICTION = BALL_FRICTION * PERIOD;
-    constexpr float DELTA_GRAVITY = GRAVITY * PERIOD;
+    const float MAX_DELTA_SPEED = MAX_ACCELERATION * duration;
+    const float DELTA_CAR_FRICTION = CAR_FRICTION * duration;
+    const float DELTA_BALL_FRICTION = BALL_FRICTION * duration;
+    const float DELTA_GRAVITY = GRAVITY * duration;
 
     // cars
-    for (auto &[carState, action] : players)
+    for (auto &[playerState, action] : players)
     {
         ZoneScopedN("car acceleration and collision");
         // steering
-        const int backwards = carState.velocity.dot(Eigen::Vector3f{std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())}) < 0 ? -1 : 1;
-        carState.orientation.y() -= backwards * action.steering * STEERING_SCALE * PERIOD;
+        const int backwards = playerState.velocity.dot(Eigen::Vector3f{std::sin(playerState.orientation.y()), 0.0f, std::cos(playerState.orientation.y())}) < 0 ? -1 : 1;
+        playerState.orientation.y() -= backwards * action.steering * STEERING_SCALE * duration;
         // acceleration
-        float speed = carState.velocity.norm();
+        float speed = playerState.velocity.norm();
         speed += backwards * action.throttle * MAX_DELTA_SPEED - std::min(DELTA_CAR_FRICTION, speed);
-        carState.velocity = backwards * speed * Eigen::Vector3f{std::sin(carState.orientation.y()), 0.0f, std::cos(carState.orientation.y())};
+        playerState.velocity = backwards * speed * Eigen::Vector3f{std::sin(playerState.orientation.y()), 0.0f, std::cos(playerState.orientation.y())};
         if (speed > MAX_SPEED)
         {
-            carState.velocity *= MAX_SPEED / speed;
+            playerState.velocity *= MAX_SPEED / speed;
             speed = MAX_SPEED;
         }
         // wall collision
-        if (abs(carState.position.x()) > halfArenaSize.x() - carSize.z() || abs(carState.position.z()) > halfArenaSize.z() - carSize.z())
+        if (abs(playerState.position.x()) > halfArenaSize.x() - carSize.z() || abs(playerState.position.z()) > halfArenaSize.z() - carSize.z())
         {
-            Eigen::Rotation2Df carRotation(carState.orientation.y());
+            Eigen::Rotation2Df carRotation(playerState.orientation.y());
             for (const auto &localCorner : carCorners)
             {
-                Eigen::Vector2f globalCorner = Eigen::Vector2f(carState.position.x(), carState.position.z()) + carRotation * localCorner;
+                Eigen::Vector2f globalCorner = Eigen::Vector2f(playerState.position.x(), playerState.position.z()) + carRotation * localCorner;
                 struct Dimension
                 {
                     float globalCorner;
@@ -102,8 +100,8 @@ void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool det
                     float &velocity;
                 };
                 const Dimension dimensions[] = {
-                    {globalCorner.x(), halfArenaSize.x(), carState.position.x(), carState.velocity.x()},
-                    {globalCorner.y(), halfArenaSize.z(), carState.position.z(), carState.velocity.z()}};
+                    {globalCorner.x(), halfArenaSize.x(), playerState.position.x(), playerState.velocity.x()},
+                    {globalCorner.y(), halfArenaSize.z(), playerState.position.z(), playerState.velocity.z()}};
 
                 for (const auto &[globalCorner, halfArenaSize, position, velocity] : dimensions)
                 {
@@ -121,17 +119,17 @@ void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool det
             }
         }
         // car ball collision
-        if ((ball.position - carState.position).norm() < ballRadius + carCorners[0].norm())
+        if ((ball.position - playerState.position).norm() < ballRadius + carCorners[0].norm())
         {
-            const Eigen::AngleAxisf carRotation(carState.orientation.y(), Eigen::Vector3f::UnitY());
-            const Eigen::Vector3f localBallPosition = carRotation.inverse() * (ball.position - carState.position);
+            const Eigen::AngleAxisf carRotation(playerState.orientation.y(), Eigen::Vector3f::UnitY());
+            const Eigen::Vector3f localBallPosition = carRotation.inverse() * (ball.position - playerState.position);
             const Eigen::Vector3f difference = localBallPosition.cwiseMax(-halfCarSize).cwiseMin(halfCarSize) - localBallPosition;
             const float distance = difference.norm();
             if (distance < ballRadius)
             {
                 ball.position -= carRotation * difference * (ballRadius / distance - 1);
-                const Eigen::Vector3f collisionNormal = (ball.position - carState.position).normalized();
-                float velocityAlongNormal = (ball.velocity - carState.velocity).dot(collisionNormal);
+                const Eigen::Vector3f collisionNormal = (ball.position - playerState.position).normalized();
+                float velocityAlongNormal = (ball.velocity - playerState.velocity).dot(collisionNormal);
                 if (velocityAlongNormal < 0)
                 {
                     ball.velocity -= velocityAlongNormal * collisionNormal;
@@ -220,8 +218,9 @@ void physicsStep(ObjectState &ball, std::vector<Player> &players, const bool det
     // change position of car and ball
     {
         ZoneScopedN("change position of car and ball");
-        for (auto &[carState, _] : players)
-            carState.position += carState.velocity * PERIOD;
-        ball.position += ball.velocity * PERIOD;
+        for (auto &[playerState, _] : players) {
+            playerState.position += playerState.velocity * duration;
+        }
+        ball.position += ball.velocity * duration;
     }
 }
