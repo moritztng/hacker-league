@@ -16,13 +16,13 @@ hacker-league_profile: GAME_SRC += tracy/public/TracyClient.cpp
 hacker-league_profile: hacker-league tracy/public/TracyClient.cpp
 
 hacker-league: main.cpp common.h shaders/world/vert.spv.h shaders/world/frag.spv.h shaders/hud/vert.spv.h shaders/hud/frag.spv.h font.h font.png 
-	g++ $(CXXFLAGS) -o hacker-league $(GAME_SRC) -lvulkan -lglfw -lpthread -lcurl
+	g++ $(CXXFLAGS) -o $@ $(GAME_SRC) -lvulkan -lglfw -lpthread -lcurl
 
 font.h font.png: font
-	./font
+	./$<
 
 font: font.cpp
-	g++ $(CXXFLAGS) -o font font.cpp
+	g++ $(CXXFLAGS) -o $@ $<
 
 shaders/world/%.spv.h: shaders/world/shader.%
 	shaders/glslc $< -o ./shaders/world/$*.spv
@@ -33,11 +33,11 @@ shaders/hud/%.spv.h: shaders/hud/shader.%
 	xxd -i ./shaders/hud/$*.spv > $@
 
 server: server.cpp common.h
-	g++ $(CXXFLAGS) -o server server.cpp -lpthread
+	g++ $(CXXFLAGS) -o $@ $< -lpthread
 
 python_module: $(PYTHON_MODULE)
 $(PYTHON_MODULE): python_bindings.cpp common.h
-	g++ $(CXXFLAGS) -shared -fPIC -I$(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))") -I/usr/include/pybind11 -I/usr/include/eigen3 $< -o $@
+	g++ $(CXXFLAGS) -shared -fPIC -I$(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))") -I/usr/include/pybind11 -I/usr/include/eigen3 -o $@ $<
 
 clean:
 	rm -f hacker-league font font.h font.png server shaders/*/*spv* $(PYTHON_MODULE)
