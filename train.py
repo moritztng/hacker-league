@@ -56,20 +56,45 @@ class Model:
     def n_params(self):
         return self.weights0.size + self.bias0.size + self.weights1.size + self.bias1.size
 
+class AdamOptimizer:
+    def __init__(self, learning_rate=0.01, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        self.learning_rate = learning_rate
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.m = None
+        self.v = None
+        self.t = 0
+    def update(self, grads):
+        if self.m is None:
+            self.m = np.zeros_like(grads)
+        if self.v is None:
+            self.v = np.zeros_like(grads)
+        self.t += 1
+        # Update biased first and second moment estimates
+        self.m = self.beta1 * self.m + (1 - self.beta1) * grads
+        self.v = self.beta2 * self.v + (1 - self.beta2) * (grads ** 2)
+        # Compute bias-corrected moment estimates
+        m_hat = self.m / (1 - self.beta1 ** self.t)
+        v_hat = self.v / (1 - self.beta2 ** self.t)
+        return self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
+
 if __name__ == "__main__":
     population_size = 50
-    sigma = 0.01
-    alpha = 0.01
+    noise_stdev = 0.01
+    learning_rate = 0.01
     max_steps = 600
     max_generations = 10000
+    rank_transformation = True
 
     environment = Environment(two_agents=False)
     model = Model(18, 8, 2)
+    adam = None#AdamOptimizer(learning_rate=learning_rate)
     for generation in range(max_generations):
         perturbations = np.random.randn(population_size, model.n_params())
         rewards = np.zeros(population_size)
         for i in range(population_size):
-            model.params_add(sigma * perturbations[i])
+            model.params_add(noise_stdev * perturbations[i])
             total_reward = 0
             environment.reset()
             for _ in range(max_steps):
@@ -80,5 +105,23 @@ if __name__ == "__main__":
                 if environment.agents[0].state.position[2] > 0:
                     break
             rewards[i] = total_reward
-        model.params_add(alpha / (population_size * sigma) * np.dot(perturbations.T, (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-8)))
+
+        if rank_transformation:
+            ranks = np.empty(len(rewards), dtype=int)
+            ranks[rewards.argsort()] = np.arange(len(rewards))
+            ranks = ranks.astype(np.float32) / (len(ranks) - 1) - .5
+            transformed_rewards = ranks
+        else:
+            transformed_rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-8)
+
+        gradient = np.dot(perturbations.T, transformed_rewards) / (population_size * noise_stdev)
+        if adam:
+            gradient = adam.update(gradient)
+        else:
+            gradient *= learning_rate
+        model.params_add(gradient)
         print(f"Generation {generation + 1}, Average Reward: {np.mean(rewards)}")
+ 
+# mirrored sampling
+# l2 norm
+# print gradient
