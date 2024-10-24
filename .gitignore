@@ -10,3 +10,5 @@ server
 env
 tracy
 *.so
+build
+*.egg-info
