@@ -8,7 +8,7 @@ namespace py = pybind11;
 void physicsStepWrapper(ObjectState &ball, const py::list playersList, const float duration, const py::array_t<uint8_t> &scoresArray)
 {
     std::vector<Player> players = playersList.cast<std::vector<Player>>();
-    physicsStep(ball, players, false, duration, (uint8_t *)scoresArray.data());
+    physicsStep(ball, players, true, duration, (uint8_t *)scoresArray.data());
     for (size_t i = 0; i < players.size(); ++i)
     {
         playersList[i] = players[i];
