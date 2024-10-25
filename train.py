@@ -64,7 +64,7 @@ if __name__ == "__main__":
     environment = Environment(two_agents=False)
     model = Model(18, 8, 2)
 
-    def loss_function(params):
+    def fitness(params):
         max_steps = 600
         model.set_params(params)
         loss = 0
@@ -73,26 +73,22 @@ if __name__ == "__main__":
             agent = environment.agents[0].state
             ball = environment.ball
             environment.step([model.forward(np.concatenate([agent.position, agent.velocity, agent.orientation, ball.position, ball.velocity, ball.orientation])).squeeze()])
-            loss += 1
+            loss -= 1
             if environment.scores[0] > 0:
                 break
         return loss
 
-    optimizer = ng.optimizers.registry["CMA"](parametrization=model.n_params(), budget=1000)
-    min_loss = float('inf')
-    for _ in range(optimizer.budget):
-        x = optimizer.ask()
-        loss = loss_function(*x.args)
-        if loss < min_loss:
-            min_loss = loss
-            print(min_loss)
-        optimizer.tell(x, loss)
+    # optimizer = ng.optimizers.registry["CMA"](parametrization=model.n_params(), budget=5000)
+    # min_loss = float('inf')
+    # for _ in range(optimizer.budget):
+    #     x = optimizer.ask()
+    #     loss = -fitness(*x.args)
+    #     if loss < min_loss:
+    #         min_loss = loss
+    #         print(min_loss)
+    #     optimizer.tell(x, loss)
     
-    # with futures.ThreadPoolExecutor(max_workers=optimizer.num_workers) as executor:
-    #     recommendation = optimizer.minimize(loss_function,  executor=executor, batch_mode=False)  # best value
-    #     print(recommendation.losses)
-
-    #   class AdamOptimizer:
+    # class AdamOptimizer:
     #     def __init__(self, learning_rate=0.01, beta1=0.9, beta2=0.999, epsilon=1e-8):
     #         self.learning_rate = learning_rate
     #         self.beta1 = beta1
@@ -115,32 +111,38 @@ if __name__ == "__main__":
     #         v_hat = self.v / (1 - self.beta2 ** self.t)
     #         return self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
 
-    # population_size = 50
-    # noise_stdev = 0.01
-    # learning_rate = 0.01
-    # adam = None#AdamOptimizer(learning_rate=learning_rate)
-    # params = model.get_params()
-    # for generation in range(max_generations):
-    #     perturbations = np.random.randn(population_size, model.n_params())
-    #     rewards = np.zeros(population_size)
-    #     for i in range(population_size):
-    #         rewards[i] = loss_function(params + noise_stdev * perturbations[i])
+    max_generations = 10000
+    population_size = 50
+    noise_stdev = 0.01
+    learning_rate = 0.01
+    adam = None#AdamOptimizer(learning_rate=learning_rate)
+    rank_transformation = True
 
-    #     if rank_transformation:
-    #         ranks = np.empty(len(rewards), dtype=int)
-    #         ranks[rewards.argsort()] = np.arange(len(rewards))
-    #         ranks = ranks.astype(np.float32) / (len(ranks) - 1) - .5
-    #         transformed_rewards = ranks
-    #     else:
-    #         transformed_rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-8)
+    max_fitness = float("-inf")
+    params = model.get_params()
+    for generation in range(max_generations):
+        perturbations = np.random.randn(population_size, model.n_params())
+        rewards = np.zeros(population_size)
+        for i in range(population_size):
+            rewards[i] = fitness(params + noise_stdev * perturbations[i])
+            if rewards[i] > max_fitness:
+                max_fitness = rewards[i]
+                print(f"Generation {generation + 1}, Max Fitness: {max_fitness}")
 
-    #     gradient = np.dot(perturbations.T, transformed_rewards) / (population_size * noise_stdev)
-    #     if adam:
-    #         gradient = adam.update(gradient)
-    #     else:
-    #         gradient *= learning_rate
-    #     params -= gradient
-    #     print(f"Generation {generation + 1}, Average Reward: {np.mean(rewards)}")
+        if rank_transformation:
+            ranks = np.empty(len(rewards), dtype=int)
+            ranks[rewards.argsort()] = np.arange(len(rewards))
+            ranks = ranks.astype(np.float32) / (len(ranks) - 1) - .5
+            transformed_rewards = ranks
+        else:
+            transformed_rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-8)
+
+        gradient = np.dot(perturbations.T, transformed_rewards) / (population_size * noise_stdev)
+        if adam:
+            gradient = adam.update(gradient)
+        else:
+            gradient *= learning_rate
+        params += gradient
  
 # mirrored sampling
 # l2 norm
