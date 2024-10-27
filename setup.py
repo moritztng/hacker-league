@@ -4,7 +4,7 @@ import numpy as np
 
 ext_modules = [
     Extension(
-        "hacker_league",
+        "hacker_league_physics",
         ["python_bindings.cpp"],
         include_dirs=[
             pybind11.get_include(),
@@ -17,6 +17,6 @@ ext_modules = [
 ]
 
 setup(
-    name="hacker_league",
+    name="hacker_league_physics",
     ext_modules=ext_modules,
 )

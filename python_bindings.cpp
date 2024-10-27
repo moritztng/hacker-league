@@ -15,7 +15,7 @@ void physicsStepWrapper(ObjectState &ball, const py::list playersList, const flo
     }
 }
 
-PYBIND11_MODULE(hacker_league, m)
+PYBIND11_MODULE(hacker_league_physics, m)
 {
     py::class_<ObjectState>(m, "State")
         .def(py::init<>())
