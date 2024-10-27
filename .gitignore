@@ -12,3 +12,5 @@ tracy
 *.so
 build
 *.egg-info
+scratchpad
+*.pyc
