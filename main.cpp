@@ -51,20 +51,23 @@ struct State
     bool running;
 };
 
-void physics(State &state, const std::vector<Player> &initialPlayers, std::optional<sockaddr_in> &serverAddress)
+void physics(State &state, const std::vector<Player> &initialPlayers,
+             bool environment, std::optional<sockaddr_in> &serverAddress)
 {
     constexpr uint16_t PROTOCOL_VERSION = 1;
     int udpSocket = -1;
     try
     {
         bool multiplayer = serverAddress.has_value();
-        if (multiplayer)
+        if (multiplayer || environment)
         {
             udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
             if (udpSocket < 0)
             {
                 throw std::runtime_error("creating udp socket");
             }
+            if (multiplayer)
+            {
             char buffer[3];
             if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1)
             {
@@ -99,6 +102,16 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             {
                 throw std::runtime_error("setting O_NONBLOCK flag");
             }
+            }
+        }
+
+        std::optional<struct sockaddr_in> environmentAddress;
+        if (environment)
+        {
+            environmentAddress.emplace();
+            environmentAddress->sin_family = AF_INET;
+            environmentAddress->sin_port = htons(5000);
+            environmentAddress->sin_addr.s_addr = inet_addr("127.0.0.1");
         }
 
         constexpr uint FREQUENCY = 60;
@@ -114,6 +127,8 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
         auto targetTime = std::chrono::high_resolution_clock::now();
         while (state.running)
         {
+            if (!environment)
+        {
             if (statesBehind == 0)
             {
                 players[state.playerId].action = state.input.action;
@@ -125,6 +140,7 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
             else
             {
                 players[state.playerId] = records[stateId % N_RECORDS];
+                }
             }
 
             if (multiplayer)
@@ -175,6 +191,26 @@ void physics(State &state, const std::vector<Player> &initialPlayers, std::optio
                 {
                     statesBehind--;
                 }
+            }
+
+            if (environment)
+            {
+                char buffer[72];
+                std::memcpy(buffer, ball.position.data(), 12);
+                std::memcpy(buffer + 12, ball.velocity.data(), 12);
+                std::memcpy(buffer + 24, ball.orientation.data(), 12);
+                std::memcpy(buffer + 36, players[state.playerId].state.position.data(), 12);
+                std::memcpy(buffer + 48, players[state.playerId].state.velocity.data(), 12);
+                std::memcpy(buffer + 60, players[state.playerId].state.orientation.data(), 12);
+                sendto(udpSocket, buffer, sizeof(buffer), 0,
+                       (struct sockaddr *)&environmentAddress,
+                       sizeof(*environmentAddress));
+                if (recv(udpSocket, buffer, sizeof(buffer), 0) <= 0)
+                {
+                    throw(std::runtime_error("receive environment"));
+                }
+                std::memcpy(&players[state.playerId].action.throttle, buffer, 4);
+                std::memcpy(&players[state.playerId].action.steering, buffer + 4, 4);
             }
 
             physicsStep(ball, players, !multiplayer, PERIOD);
@@ -2237,6 +2273,7 @@ int main(int argc, char *argv[])
             .running = true,
         };
         std::optional<sockaddr_in> serverAddress;
+        bool environment = false;
 
         if (argc == 2 && std::string(argv[1]) == "servers" || argc == 3)
         {
@@ -2304,6 +2341,10 @@ int main(int argc, char *argv[])
             state.players.push_back(initialPlayers[1]);
             state.scores = {};
         }
+        else if (argc == 2 && std::string(argv[1]) == "environment")
+        {
+            environment = true;
+        }
         else if (argc != 1)
         {
             throw std::runtime_error("wrong number of arguments");
@@ -2313,7 +2354,9 @@ int main(int argc, char *argv[])
         InputGraphics inputGraphics(state);
 
         std::thread inputGraphicsThread(&InputGraphics::run, &inputGraphics);
-        std::thread physicsThread(&physics, std::ref(state), std::ref(initialPlayers), std::ref(serverAddress));
+        std::thread physicsThread(&physics, std::ref(state),
+                                  std::ref(initialPlayers), environment,
+                                  std::ref(serverAddress));
         inputGraphicsThread.join();
         physicsThread.join();
     }
