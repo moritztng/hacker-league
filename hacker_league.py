@@ -1,4 +1,4 @@
-import hacker_league_physics, socket, struct, subprocess
+import hacker_league_physics, socket, struct, subprocess, os, requests, tempfile
 import numpy as np
 
 class Environment:
@@ -39,8 +39,20 @@ class Environment:
         )
 
 def play(policy):
+    if os.path.exists('/etc/debian_version'):
+        distro = "debian"
+    elif os.path.exists('/etc/arch-release'):
+        distro = "arch"
+    else:
+        raise RuntimeError("os not supported")
+    file_name = f"hacker-league_x86_64_{distro}"
+    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
+    if not os.path.exists(temp_file_path):
+        with open(temp_file_path, 'wb') as temp_file:
+            temp_file.write(requests.get(f"https://github.com/moritztng/hacker-league/releases/latest/download/{file_name}").content)
+        os.chmod(temp_file_path, 0o755)
     game_process = subprocess.Popen(
-        ["./hacker-league", "environment"],
+        [temp_file_path, "environment"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
