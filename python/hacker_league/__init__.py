@@ -2,6 +2,7 @@ import socket, struct, subprocess, os, requests, tempfile
 import numpy as np
 from . import hacker_league_physics
 
+
 class Environment:
     def __init__(self, two_agents=False, frequency=60):
         self.ball = hacker_league_physics.State()
@@ -39,21 +40,37 @@ class Environment:
             self.ball, self.agents, self.step_duration, self.scores
         )
 
+
 def play(policy):
-    if os.path.exists('/etc/debian_version'):
+    if os.path.exists("/etc/debian_version"):
         distro = "debian"
-    elif os.path.exists('/etc/arch-release'):
+    elif os.path.exists("/etc/arch-release"):
         distro = "arch"
     else:
         raise RuntimeError("os not supported")
-    file_name = f"hacker-league_x86_64_{distro}"
-    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-    if not os.path.exists(temp_file_path):
-        with open(temp_file_path, 'wb') as temp_file:
-            temp_file.write(requests.get(f"https://github.com/moritztng/hacker-league/releases/latest/download/{file_name}").content)
-        os.chmod(temp_file_path, 0o755)
+
+    binary_name = f"hacker-league_x86_64_{distro}"
+
+    temp_dir_path = os.path.join(tempfile.gettempdir(), "hacker_league")
+    os.makedirs(temp_dir_path, exist_ok=True)
+
+    addresses = [
+        "https://github.com/moritztng/hacker-league/releases/latest/download/" + binary_name,
+        "https://raw.githubusercontent.com/moritztng/hacker-league/refs/heads/main/gamepad.txt",
+        "https://raw.githubusercontent.com/moritztng/hacker-league/refs/heads/main/font.png",
+    ]
+    for address in addresses:
+        file_name = address.split("/")[-1]
+        file_path = os.path.join(temp_dir_path, file_name)
+        if not os.path.exists(file_path):
+            with open(file_path, "wb") as file:
+                file.write(requests.get(address).content)
+            if "hacker-league" in file_name:
+                os.chmod(file_path, 0o755)
+
     game_process = subprocess.Popen(
-        [temp_file_path, "environment"],
+        [os.path.join(temp_dir_path, binary_name), "environment"],
+        env={**os.environ, 'HACKER_LEAGUE': temp_dir_path},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

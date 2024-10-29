@@ -68,40 +68,40 @@ void physics(State &state, const std::vector<Player> &initialPlayers,
             }
             if (multiplayer)
             {
-            char buffer[3];
-            if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1)
-            {
-                throw std::runtime_error("sending byte");
-            };
+                char buffer[3];
+                if (sendto(udpSocket, &buffer, 1, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 1)
+                {
+                    throw std::runtime_error("sending byte");
+                };
 
-            struct timeval timeout
-            {
-                .tv_sec = 1, .tv_usec = 0
-            };
-            setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
-            if (recv(udpSocket, &buffer, sizeof(buffer), 0) < 1)
-            {
-                throw std::runtime_error("can't connect to server");
-            }
-            uint16_t server_protocol_version;
-            std::memcpy(&server_protocol_version, buffer, 2);
-            if (server_protocol_version != PROTOCOL_VERSION)
-            {
-                throw std::runtime_error("game and server have different versions. please update your game.");
-            }
-            state.playerId = buffer[2];
-            timeout.tv_sec = 0;
-            setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+                struct timeval timeout
+                {
+                    .tv_sec = 1, .tv_usec = 0
+                };
+                setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+                if (recv(udpSocket, &buffer, sizeof(buffer), 0) < 1)
+                {
+                    throw std::runtime_error("can't connect to server");
+                }
+                uint16_t server_protocol_version;
+                std::memcpy(&server_protocol_version, buffer, 2);
+                if (server_protocol_version != PROTOCOL_VERSION)
+                {
+                    throw std::runtime_error("game and server have different versions. please update your game.");
+                }
+                state.playerId = buffer[2];
+                timeout.tv_sec = 0;
+                setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
 
-            int flags = fcntl(udpSocket, F_GETFL, 0);
-            if (flags < 0)
-            {
-                throw std::runtime_error("getting socket flags");
-            }
-            if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) < 0)
-            {
-                throw std::runtime_error("setting O_NONBLOCK flag");
-            }
+                int flags = fcntl(udpSocket, F_GETFL, 0);
+                if (flags < 0)
+                {
+                    throw std::runtime_error("getting socket flags");
+                }
+                if (fcntl(udpSocket, F_SETFL, flags | O_NONBLOCK) < 0)
+                {
+                    throw std::runtime_error("setting O_NONBLOCK flag");
+                }
             }
         }
 
@@ -128,18 +128,18 @@ void physics(State &state, const std::vector<Player> &initialPlayers,
         while (state.running)
         {
             if (!environment)
-        {
-            if (statesBehind == 0)
             {
-                players[state.playerId].action = state.input.action;
-                if (multiplayer)
+                if (statesBehind == 0)
                 {
-                    records[stateId % N_RECORDS] = players[state.playerId];
+                    players[state.playerId].action = state.input.action;
+                    if (multiplayer)
+                    {
+                        records[stateId % N_RECORDS] = players[state.playerId];
+                    }
                 }
-            }
-            else
-            {
-                players[state.playerId] = records[stateId % N_RECORDS];
+                else
+                {
+                    players[state.playerId] = records[stateId % N_RECORDS];
                 }
             }
 
@@ -789,6 +789,9 @@ public:
     {
         try
         {
+            const char *envValue = std::getenv("HACKER_LEAGUE");
+            const std::string basePath = (envValue != nullptr) ? std::string(envValue) + "/" : "";
+
             // init window
             {
                 glfwInit();
@@ -799,7 +802,7 @@ public:
                 glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
                 // TODO: environment variable
-                std::ifstream file("gamepad.txt");
+                std::ifstream file(basePath + "gamepad.txt");
                 if (!file)
                 {
                     throw std::runtime_error("opening gamepad.txt");
@@ -1681,7 +1684,7 @@ public:
                 // create hud descriptor sets
                 {
                     int textureWidth, textureHeight, textureChannels;
-                    stbi_uc *data = stbi_load("font.png", &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
+                    stbi_uc *data = stbi_load((basePath + "font.png").c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
                     VkDeviceSize imageSize = textureWidth * textureHeight * 4;
 
                     VkImageCreateInfo imageInfo{};
