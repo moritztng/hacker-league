@@ -1,5 +1,6 @@
-import hacker_league_physics, socket, struct, subprocess, os, requests, tempfile
+import socket, struct, subprocess, os, requests, tempfile
 import numpy as np
+from . import hacker_league_physics
 
 class Environment:
     def __init__(self, two_agents=False, frequency=60):

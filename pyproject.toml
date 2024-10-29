@@ -1,0 +1,9 @@
+[build-system]
+requires = ["setuptools>=42", "pybind11>=2.6.0", "numpy>=1.20.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hacker-league"
+version = "0.1.0"
+requires-python = ">=3.7"
+dependencies = ["numpy>=1.20.0", "requests>=2.25.0"]
