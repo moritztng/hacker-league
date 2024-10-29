@@ -1,4 +1,4 @@
-#include "eigen/Dense"
+#include "Eigen/Dense"
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
