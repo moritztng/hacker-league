@@ -1,6 +1,7 @@
 import hacker_league
 import numpy as np
 
+
 class Model:
     def __init__(self, input_dim, hidden_dim, output_dim):
         self.weights0 = np.random.randn(input_dim, hidden_dim) * np.sqrt(1 / input_dim)
@@ -144,8 +145,7 @@ def fitness(params):
     return loss
 
 
-best_params = evolution_strategies(model.get_params(), fitness, max_generations=1)
-
+best_params = evolution_strategies(model.get_params(), fitness)
 model.set_params(best_params)
 
 

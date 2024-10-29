@@ -31,6 +31,21 @@ Specify `public-ip` and `public-port` if the server should be added to the publi
 ```bash
 ./server <local-port> [<public-ip>] [<public-port>]
 ```
+# Python Reinforcement Learning Environment
+Currently only debian and arch based distros with x86_64
+## Install
+```bash
+pip install git+https://github.com/moritztng/hacker-league.git
+```
+## Train
+See [train_example.py](train_example.py)
+```python
+best_params = evolution_strategies(model.get_params(), fitness)
+model.set_params(best_params)
+def policy(observation):
+    return model.forward(observation)
+hacker_league.play(policy) # opens the game and shows the agent playing
+```
 # Build from source
 ## Install dependencies
 ### Debian
