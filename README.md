@@ -32,8 +32,17 @@ Specify `public-ip` and `public-port` if the server should be added to the publi
 ./server <local-port> [<public-ip>] [<public-port>]
 ```
 # Python Reinforcement Learning Environment
-Currently only debian and arch based distros with x86_64
 ## Install
+Currently only debian and arch based distros with x86_64. Make sure vulkan drivers are installed on your machine.
+### Debian Dependencies
+```bash
+sudo apt-get install libglfw3 libcurl4-openssl-dev
+```
+### Arch Dependencies
+```bash
+sudo pacman -S glfw curl
+```
+### Python Package
 ```bash
 pip install git+https://github.com/moritztng/hacker-league.git
 ```
