@@ -36,11 +36,11 @@ Specify `public-ip` and `public-port` if the server should be added to the publi
 ### Debian
 ```bash
 sudo apt update
-sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev libeigen3-dev vim-common xxd g++ make libcurl4-openssl-dev git
+sudo apt install libvulkan-dev vulkan-validationlayers-dev spirv-tools libglfw3-dev libglm-dev vim-common xxd g++ make libcurl4-openssl-dev git
 ```
 ### Arch
 ```bash
-sudo pacman -Syu vulkan-headers vulkan-validation-layers spirv-tools glfw glm eigen vim xxd gcc make curl git
+sudo pacman -Syu vulkan-headers vulkan-validation-layers spirv-tools glfw glm vim xxd gcc make curl git
 ```
 ## Build
 ```bash

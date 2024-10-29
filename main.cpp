@@ -10,7 +10,7 @@
 #include <set>
 #include <thread>
 #include <optional>
-#include <eigen3/Eigen/Dense>
+#include "eigen/Dense"
 #include "shaders/world/vert.spv.h"
 #include "shaders/world/frag.spv.h"
 #include "shaders/hud/vert.spv.h"
